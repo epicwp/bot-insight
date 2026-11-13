@@ -21,3 +21,6 @@ phpstan.neon.dist
 phpunit.xml.dist
 phpunit-integration.xml.dist
 CLAUDE.md
+.releaserc.json
+build
+build-check

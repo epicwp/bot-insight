@@ -16,3 +16,4 @@
 /phpunit.xml.dist export-ignore
 /phpunit-integration.xml.dist export-ignore
 /CLAUDE.md export-ignore
+/.releaserc.json export-ignore

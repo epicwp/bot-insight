@@ -13,3 +13,5 @@ node_modules/
 # Build and test artefacts
 dist/
 .phpunit.result.cache
+build/
+build-check/

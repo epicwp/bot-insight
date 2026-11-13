@@ -2,6 +2,7 @@ name: CI
 
 on:
   push:
+    branches: [main, beta]
   pull_request:
 
 permissions:
@@ -54,3 +55,23 @@ jobs:
           tools: composer
       - uses: ramsey/composer-install@v3
       - run: composer test:unit
+
+  plugin-check:
+    name: Plugin Check (org zip)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '7.4'
+          coverage: none
+          tools: composer
+      - name: Build the WordPress.org flavour
+        run: bin/build-zip.sh org
+      - name: Unpack the zip
+        run: |
+          mkdir -p build-check
+          unzip -q dist/bot-insight-org.zip -d build-check
+      - uses: wordpress/plugin-check-action@v1
+        with:
+          build-dir: build-check/bot-insight
