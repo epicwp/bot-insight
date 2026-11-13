@@ -284,7 +284,7 @@ final class Folder {
 			return 'bot_insight_dns_' . substr( md5( (string) get_option( 'bot_insight_secret', '' ) . $ip ), 0, 20 );
 		};
 		$verifier  = new Verifier(
-			new IpRanges( $base . 'data/ranges' ),
+			new IpRanges( $base . 'data/ranges', is_dir( $dir . '/ranges' ) ? $dir . '/ranges' : null ),
 			static function ( string $ip ) {
 				return @gethostbyaddr( $ip ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- A failed lookup is an expected result.
 			},

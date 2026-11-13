@@ -8,6 +8,8 @@
 
 namespace BotInsight\Fold;
 
+use BotInsight\Site\Daily;
+
 /**
  * Schedules the fold (every 5 minutes) and the daily job (00:10 UTC) with Action Scheduler when
  * it is available, else with WP-Cron.
@@ -27,6 +29,7 @@ final class Scheduler {
 		add_filter( 'cron_schedules', array( self::class, 'addSchedule' ) ); // phpcs:ignore WordPress.WP.CronInterval.CronSchedulesInterval, WordPress.WP.CronInterval.ChangeDetected -- 300 s is the fold interval by design.
 		add_action( self::FOLD, array( self::class, 'runFold' ) );
 		add_action( self::DAILY, array( self::class, 'runDaily' ) );
+		add_action( 'bot_insight_folded', array( Daily::class, 'recordLoad' ), 10, 0 );
 		add_action( 'init', array( self::class, 'selfHeal' ), 20 );
 	}
 
@@ -121,9 +124,23 @@ final class Scheduler {
 	}
 
 	/**
-	 * Daily callback. Filled by the daily maintenance job.
+	 * Daily callback. Never throws.
 	 */
 	public static function runDaily(): void {
+		try {
+			Daily::create()->run( time() );
+		} catch ( \Throwable $e ) {
+			update_option(
+				Daily::STATUS_OPTION,
+				array(
+					'last_run' => time(),
+					'day'      => '',
+					'steps'    => array(),
+					'errors'   => array( 'run' => substr( '' !== $e->getMessage() ? $e->getMessage() : get_class( $e ), 0, 500 ) ),
+				),
+				false
+			);
+		}
 	}
 
 	/**

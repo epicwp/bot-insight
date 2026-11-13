@@ -11,6 +11,8 @@ namespace BotInsight;
 use BotInsight\Buffer\FileBuffer;
 use BotInsight\Capture\Recorder;
 use BotInsight\Fold\Scheduler;
+use BotInsight\Site\Events;
+use BotInsight\Site\Langs;
 use BotInsight\Storage\Schema;
 
 /**
@@ -61,13 +63,15 @@ final class Plugin {
 		register_activation_hook( $file, array( self::class, 'activate' ) );
 		register_deactivation_hook( $file, array( Scheduler::class, 'unregister' ) );
 		Scheduler::hooks();
+		Events::hooks();
 		// Before the recorder registers, so an upgrade's buffer dir is in place.
 		add_action( 'plugins_loaded', array( self::class, 'maybeUpgrade' ), 5 );
 		add_action( 'plugins_loaded', array( Recorder::class, 'register' ) );
 	}
 
 	/**
-	 * Activation: tables, seeded options, buffer directory and hashing secret. Idempotent.
+	 * Activation: tables, seeded options, buffer directory, hashing secret and language option.
+	 * Idempotent.
 	 */
 	public static function activate(): void {
 		Schema::install();
@@ -75,6 +79,7 @@ final class Plugin {
 		if ( false === get_option( 'bot_insight_secret' ) ) {
 			add_option( 'bot_insight_secret', wp_generate_password( 32 ), '', false );
 		}
+		Langs::update();
 		// An upgrade runs on plugins_loaded, before Action Scheduler is ready: schedule on init.
 		if ( did_action( 'init' ) ) {
 			Scheduler::register();

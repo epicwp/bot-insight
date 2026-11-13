@@ -170,7 +170,7 @@ final class Recorder {
 				$_GET, // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Only parameter names are kept.
 				WpContext::collect(),
 				$metrics,
-				new ClientIp( new IpRanges( dirname( __DIR__, 2 ) . '/data/ranges' ) ),
+				new ClientIp( new IpRanges( dirname( __DIR__, 2 ) . '/data/ranges', is_dir( $dir . '/ranges' ) ? $dir . '/ranges' : null ) ),
 				self::langs()
 			);
 

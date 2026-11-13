@@ -13,6 +13,9 @@ namespace BotInsight\Net;
  *
  * Each list is a PHP file returning an array of CIDR strings, so opcache serves it and no
  * parsing happens at runtime. Lists are loaded lazily, once per list per request.
+ *
+ * An optional override directory (refreshed lists in the private uploads dir) wins per list when
+ * its `_meta.php` date is newer than the bundled one and the list was fetched in that run.
  */
 final class IpRanges {
 
@@ -24,6 +27,20 @@ final class IpRanges {
 	private $dir;
 
 	/**
+	 * Override directory, or null.
+	 *
+	 * @var string|null
+	 */
+	private $override;
+
+	/**
+	 * Lists to read from the override directory, once worked out.
+	 *
+	 * @var array<string, bool>|null
+	 */
+	private $from_override = null;
+
+	/**
 	 * Loaded lists, keyed by list name.
 	 *
 	 * @var array<string,string[]>
@@ -33,10 +50,21 @@ final class IpRanges {
 	/**
 	 * Constructor.
 	 *
-	 * @param string $dir Directory with one `<list>.php` file per list.
+	 * @param string      $dir         Directory with one `<list>.php` file per list.
+	 * @param string|null $override_dir Directory with refreshed lists, or null.
 	 */
-	public function __construct( string $dir ) {
-		$this->dir = rtrim( $dir, '/\\' );
+	public function __construct( string $dir, ?string $override_dir = null ) {
+		$this->dir      = rtrim( $dir, '/\\' );
+		$this->override = null === $override_dir ? null : rtrim( $override_dir, '/\\' );
+	}
+
+	/**
+	 * Fetch date (`Y-m-d`) in a directory's `_meta.php`, or '' when missing or invalid.
+	 *
+	 * @param string $dir Range directory.
+	 */
+	public static function fetched( string $dir ): string {
+		return (string) self::meta( $dir )['fetched'];
 	}
 
 	/**
@@ -95,9 +123,15 @@ final class IpRanges {
 		foreach ( false === $files ? array() : $files as $file ) {
 			$name = basename( $file, '.php' );
 			if ( '_' !== $name[0] ) {
-				$names[] = $name;
+				$names[ $name ] = true;
 			}
 		}
+		foreach ( array_keys( $this->overrideLists() ) as $name ) {
+			if ( is_file( $this->override . '/' . $name . '.php' ) ) {
+				$names[ $name ] = true;
+			}
+		}
+		$names = array_keys( $names );
 		sort( $names );
 		return $names;
 	}
@@ -136,6 +170,9 @@ final class IpRanges {
 		// Only plain list names: no path traversal, no `_meta`.
 		if ( 1 === preg_match( '/^[a-z0-9][a-z0-9-]*$/', $name ) ) {
 			$file = $this->dir . '/' . $name . '.php';
+			if ( isset( $this->overrideLists()[ $name ] ) && is_file( $this->override . '/' . $name . '.php' ) ) {
+				$file = $this->override . '/' . $name . '.php';
+			}
 			if ( is_file( $file ) ) {
 				$data   = include $file;
 				$ranges = is_array( $data ) ? array_values( array_filter( $data, 'is_string' ) ) : array();
@@ -143,5 +180,54 @@ final class IpRanges {
 		}
 		$this->loaded[ $name ] = $ranges;
 		return $ranges;
+	}
+
+	/**
+	 * Lists the override directory supplies: those fetched in its last run, when that run is newer
+	 * than the bundled lists. Worked out once per instance; empty without an override directory.
+	 *
+	 * @return array<string, bool>
+	 */
+	private function overrideLists(): array {
+		if ( null === $this->from_override ) {
+			$this->from_override = array();
+			if ( null !== $this->override ) {
+				$over = self::meta( $this->override );
+				if ( '' !== $over['fetched'] && strcmp( $over['fetched'], self::meta( $this->dir )['fetched'] ) > 0 ) {
+					foreach ( $over['ok'] as $name ) {
+						$this->from_override[ $name ] = true;
+					}
+				}
+			}
+		}
+		return $this->from_override;
+	}
+
+	/**
+	 * Read a directory's `_meta.php`.
+	 *
+	 * @param string $dir Range directory.
+	 * @return array{fetched: string, ok: string[]}
+	 */
+	private static function meta( string $dir ): array {
+		$out  = array(
+			'fetched' => '',
+			'ok'      => array(),
+		);
+		$file = rtrim( $dir, '/\\' ) . '/_meta.php';
+		if ( ! is_file( $file ) ) {
+			return $out;
+		}
+		$data = include $file;
+		if ( ! is_array( $data ) || ! isset( $data['fetched'] ) || ! is_string( $data['fetched'] ) || 1 !== preg_match( '/^\d{4}-\d{2}-\d{2}$/', $data['fetched'] ) ) {
+			return $out;
+		}
+		$out['fetched'] = $data['fetched'];
+		foreach ( is_array( $data['ok'] ?? null ) ? array_keys( $data['ok'] ) : array() as $name ) {
+			if ( is_string( $name ) && 1 === preg_match( '/^[a-z0-9][a-z0-9-]*$/', $name ) ) {
+				$out['ok'][] = $name;
+			}
+		}
+		return $out;
 	}
 }
