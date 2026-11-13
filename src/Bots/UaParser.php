@@ -48,7 +48,8 @@ final class UaParser {
 		$this->bots   = $bots;
 		$this->majors = $majors;
 		foreach ( array( 'HeadlessChrome', 'PhantomJS', 'curl', 'Wget', 'python-requests', 'Python-urllib', 'aiohttp', 'httpx', 'Go-http-client', 'Java', 'okhttp', 'axios', 'node-fetch', 'undici', 'GuzzleHttp', 'libwww-perl', 'Scrapy', 'WordPress' ) as $name ) {
-			$this->libraries[] = array( strtolower( $name ), $name );
+			// "Java" needs its slash so app names like JavaFX do not match.
+			$this->libraries[] = array( 'Java' === $name ? 'java/' : strtolower( $name ), $name );
 		}
 	}
 
@@ -97,6 +98,11 @@ final class UaParser {
 		}
 		if ( false !== strpos( $ua, 'Safari/' ) && preg_match( '#Version/(\d+)#', $ua, $m ) ) {
 			return $this->browser( 'Safari', (int) $m[1], 'safari', (int) $m[1] );
+		}
+
+		// iOS in-app WebViews (Instagram, Facebook, LinkedIn, generic WKWebView apps) have no Version/ token.
+		if ( false !== strpos( $ua, 'Mozilla/5.0' ) && false !== strpos( $ua, 'AppleWebKit/' ) && false !== strpos( $ua, 'Mobile/' ) && false === strpos( $ua, 'Version/' ) ) {
+			return $this->result( 'browser', 'iOS WebView' );
 		}
 
 		return $this->result( 'other', 'other' );

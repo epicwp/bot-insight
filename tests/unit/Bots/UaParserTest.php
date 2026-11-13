@@ -14,7 +14,7 @@ use PHPUnit\Framework\TestCase;
 
 final class UaParserTest extends TestCase {
 
-	private function parser( array $majors = null ): UaParser {
+	private function parser( ?array $majors = null ): UaParser {
 		$majors = $majors ?? array(
 			'chrome'  => 140,
 			'edge'    => 140,
@@ -140,6 +140,44 @@ final class UaParserTest extends TestCase {
 		$p = $this->parser( array( 'safari' => 26 ) );
 		$this->assertSame( 0, $p->parse( $this->chrome( 50 ) )['outdated'] );
 		$this->assertSame( 0, $p->parse( 'Mozilla/5.0 Firefox/3.0' )['outdated'] );
+	}
+
+	/**
+	 * @dataProvider webviews
+	 */
+	public function test_ios_webviews_are_browsers( string $ua ): void {
+		$r = $this->parser()->parse( $ua );
+		$this->assertSame( 'browser', $r['kind'] );
+		$this->assertSame( 'iOS WebView', $r['family'] );
+		$this->assertSame( 0, $r['outdated'] );
+	}
+
+	public function webviews(): array {
+		return array(
+			'instagram' => array( 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/21E219 Instagram 330.0.0.30.99 (iPhone14,5; iOS 17_4; en_US; en; scale=3.00; 1170x2532; 551534321)' ),
+			'fban'      => array( 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/21E219 [FBAN/FBIOS;FBAV/450.0.0.38.108;FBBV/565678;FBDV/iPhone14,5;FBMD/iPhone;FBSN/iOS;FBSV/17.4;FBLC/en_US;FBOP/5]' ),
+			'linkedin'  => array( 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 LinkedInApp/9.30.1234' ),
+		);
+	}
+
+	/**
+	 * @dataProvider chromium_browsers
+	 */
+	public function test_chromium_variants_are_browsers( string $ua ): void {
+		$this->assertSame( 'browser', $this->parser()->parse( $ua )['kind'] );
+	}
+
+	public function chromium_browsers(): array {
+		return array(
+			'samsung' => array( 'Mozilla/5.0 (Linux; Android 14; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/24.0 Chrome/117.0.0.0 Mobile Safari/537.36' ),
+			'yandex'  => array( 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 YaBrowser/24.7.0.0 Safari/537.36' ),
+			'fb_iab'  => array( 'Mozilla/5.0 (Linux; Android 13; Pixel 7 Build/TQ3A.230901.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/124.0.6367.82 Mobile Safari/537.36 [FB_IAB/FB4A;FBAV/450.0.0.38.108;]' ),
+		);
+	}
+
+	public function test_java_needs_slash(): void {
+		$this->assertSame( 'Java', $this->parser()->parse( 'Java/1.8.0_292' )['family'] );
+		$this->assertSame( 'other', $this->parser()->parse( 'JavaFXApp 1.0' )['kind'] );
 	}
 
 	public function test_other(): void {
