@@ -5,6 +5,7 @@
 	"license": "GPL-2.0-or-later",
 	"require": {
 		"php": ">=7.4",
+		"maxmind-db/reader": "^1.11",
 		"yahnis-elsts/plugin-update-checker": "^5.5"
 	},
 	"require-dev": {
