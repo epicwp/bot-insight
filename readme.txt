@@ -98,6 +98,10 @@ Yes. The plugin reads the visitor's IP address from the CDN's header only when t
 
 The target is under 0.5 ms per request at the 95th percentile. Recording is one append to a buffer file at the end of the request; the heavier work (classification, verification, aggregation) runs every five minutes in the background. The dashboard shows the measured overhead of the plugin itself.
 
+= Are the site's own cron and background jobs counted? =
+
+No. Your site's own cron and background jobs are not counted: WP-Cron runs, the Action Scheduler background runner and WordPress's loopback requests to its own address (user agent `WordPress/<version>; <this site>`) are left out, so they never show up as bot time. Requests from other WordPress sites are counted as usual.
+
 = Does it block bots? =
 
 No. Version 1 only measures and reports.

@@ -104,6 +104,34 @@ final class RecorderTest extends \WP_UnitTestCase {
 		$this->assertSame( array(), $this->records() );
 	}
 
+	public function test_cron_request_is_not_recorded(): void {
+		add_filter( 'wp_doing_cron', '__return_true' );
+		$this->go_to( home_url( '/' ) );
+
+		Recorder::onShutdown();
+
+		remove_filter( 'wp_doing_cron', '__return_true' );
+		$this->assertSame( array(), $this->records() );
+	}
+
+	public function test_loopback_from_this_site_is_not_recorded(): void {
+		$_SERVER['HTTP_USER_AGENT'] = 'WordPress/7.1; ' . home_url( '/' );
+		$this->go_to( home_url( '/' ) );
+
+		Recorder::onShutdown();
+
+		$this->assertSame( array(), $this->records() );
+	}
+
+	public function test_request_from_another_wordpress_site_is_recorded(): void {
+		$_SERVER['HTTP_USER_AGENT'] = 'WordPress/7.1; https://other.example.org';
+		$this->go_to( home_url( '/' ) );
+
+		Recorder::onShutdown();
+
+		$this->assertCount( 1, $this->records() );
+	}
+
 	public function test_js_cookie_script_added_on_frontend_regardless_of_cookie(): void {
 		foreach ( array( null, '1' ) as $cookie ) {
 			$GLOBALS['wp_scripts'] = null;

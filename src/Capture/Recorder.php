@@ -142,6 +142,11 @@ final class Recorder {
 			if ( defined( 'WP_CLI' ) && WP_CLI ) {
 				return;
 			}
+			$ua   = isset( $_SERVER['HTTP_USER_AGENT'] ) && is_string( $_SERVER['HTTP_USER_AGENT'] ) ? $_SERVER['HTTP_USER_AGENT'] : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Only compared.
+			$home = 0 === strncmp( $ua, 'WordPress/', 10 ) ? (string) wp_parse_url( home_url(), PHP_URL_HOST ) : '';
+			if ( self::isOwnBackgroundWork( wp_doing_cron(), self::ajaxAction(), $ua, $home ) ) {
+				return;
+			}
 			$settings = Plugin::settings();
 			if ( ! empty( $settings['exclude_admins'] ) && function_exists( 'current_user_can' ) && current_user_can( 'manage_options' ) ) {
 				return;
@@ -183,6 +188,27 @@ final class Recorder {
 		} catch ( \Throwable $e ) {
 			return;
 		}
+	}
+
+	/**
+	 * Whether a request is the site's own background work, which is not recorded: WP-Cron, the
+	 * Action Scheduler async runner, and loopback requests whose user agent is WordPress's own
+	 * (`WordPress/<version>; <url>`) with this site's host. Pure.
+	 *
+	 * @param bool   $doing_cron  Whether this is a WP-Cron request.
+	 * @param string $ajax_action The admin-ajax action, '' when this is not an admin-ajax request.
+	 * @param string $ua          Raw user agent.
+	 * @param string $home_host   Host of the site's home URL ('' skips the loopback check).
+	 * @return bool
+	 */
+	public static function isOwnBackgroundWork( bool $doing_cron, string $ajax_action, string $ua, string $home_host ): bool {
+		if ( $doing_cron || 'as_async_request_queue_runner' === $ajax_action ) {
+			return true;
+		}
+		if ( '' === $home_host || 0 !== strncmp( $ua, 'WordPress/', 10 ) ) {
+			return false;
+		}
+		return 1 === preg_match( '#^WordPress/[^;]*;\s*https?://([^/:\s;]+)#i', $ua, $m ) && 0 === strcasecmp( $m[1], $home_host );
 	}
 
 	/**
@@ -269,6 +295,18 @@ final class Recorder {
 			return 0;
 		}
 		return (int) ( ( $u['ru_utime.tv_sec'] + $u['ru_stime.tv_sec'] ) * 1000000 + $u['ru_utime.tv_usec'] + $u['ru_stime.tv_usec'] );
+	}
+
+	/**
+	 * The admin-ajax action of this request, or ''.
+	 *
+	 * @return string
+	 */
+	private static function ajaxAction(): string {
+		if ( ! wp_doing_ajax() || ! isset( $_REQUEST['action'] ) || ! is_string( $_REQUEST['action'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Only compared.
+			return '';
+		}
+		return $_REQUEST['action']; // phpcs:ignore WordPress.Security.NonceVerification.Recommended, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Only compared.
 	}
 
 	/**
