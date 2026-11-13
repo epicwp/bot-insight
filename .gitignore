@@ -9,3 +9,7 @@ node_modules/
 # Local agent workspaces
 .superpowers/
 .worktrees/
+
+# Build and test artefacts
+dist/
+.phpunit.result.cache
