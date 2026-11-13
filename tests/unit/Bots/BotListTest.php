@@ -84,4 +84,17 @@ final class BotListTest extends TestCase {
 			}
 		}
 	}
+
+	public function test_in_app_browsers_and_plugins_are_not_bots(): void {
+		$this->assertNull( $this->list()->match( 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 [Pinterest/iOS]' ) );
+		$this->assertSame( 'pinterestbot', $this->list()->match( 'Mozilla/5.0 (compatible; Pinterestbot/1.0; +http://www.pinterest.com/bot.html)' )['id'] );
+		$this->assertNull( $this->list()->match( 'Mozilla/5.0 (Windows NT 10.0) Chrome/120.0 Safari/537.36 Jetpack/13.0' ) );
+		$this->assertSame( 'jetpack', $this->list()->match( 'Mozilla/5.0 (compatible; Jetpack by WordPress.com)' )['id'] );
+	}
+
+	public function test_other_google_crawlers(): void {
+		$this->assertSame( 'search', $this->list()->match( 'AdsBot-Google (+http://www.google.com/adsbot.html)' )['class'] );
+		$this->assertSame( 'search', $this->list()->match( 'Mediapartners-Google' )['class'] );
+		$this->assertSame( 'feed', $this->list()->match( 'FeedFetcher-Google; (+http://www.google.com/feedfetcher.html)' )['class'] );
+	}
 }

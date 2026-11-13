@@ -50,6 +50,10 @@ final class IpRanges {
 		if ( false === $bin ) {
 			return false;
 		}
+		// Treat IPv4-mapped IPv6 (::ffff:a.b.c.d) as plain IPv4.
+		if ( 16 === strlen( $bin ) && "\0\0\0\0\0\0\0\0\0\0\xff\xff" === substr( $bin, 0, 12 ) ) {
+			$bin = substr( $bin, 12 );
+		}
 		$ranges = $this->load( $name );
 		if ( ! $ranges ) {
 			return false;
@@ -68,10 +72,11 @@ final class IpRanges {
 			if ( false === $net || strlen( $net ) !== $length ) {
 				continue;
 			}
-			$bits = (int) substr( $cidr, $slash + 1 );
-			if ( $bits < 0 || $bits > $length * 8 ) {
+			$prefix = substr( $cidr, $slash + 1 );
+			if ( '' === $prefix || ! ctype_digit( $prefix ) || (int) $prefix > $length * 8 ) {
 				continue;
 			}
+			$bits = (int) $prefix;
 			if ( $this->prefix_matches( $bin, $net, $bits ) ) {
 				return true;
 			}

@@ -104,6 +104,63 @@
             "findability": false
         },
         {
+            "id": "adsbot-google",
+            "name": "AdsBot-Google",
+            "patterns": [
+                "AdsBot-Google"
+            ],
+            "class": "search",
+            "owner": "Google",
+            "verify": {
+                "ranges": [
+                    "google"
+                ],
+                "dns": [
+                    ".googlebot.com",
+                    ".google.com"
+                ]
+            },
+            "findability": true
+        },
+        {
+            "id": "mediapartners-google",
+            "name": "Mediapartners-Google",
+            "patterns": [
+                "Mediapartners-Google"
+            ],
+            "class": "search",
+            "owner": "Google",
+            "verify": {
+                "ranges": [
+                    "google"
+                ],
+                "dns": [
+                    ".googlebot.com",
+                    ".google.com"
+                ]
+            },
+            "findability": true
+        },
+        {
+            "id": "feedfetcher-google",
+            "name": "FeedFetcher-Google",
+            "patterns": [
+                "FeedFetcher-Google"
+            ],
+            "class": "feed",
+            "owner": "Google",
+            "verify": {
+                "ranges": [
+                    "google"
+                ],
+                "dns": [
+                    ".googlebot.com",
+                    ".google.com"
+                ]
+            },
+            "findability": false
+        },
+        {
             "id": "googlebot",
             "name": "Googlebot",
             "patterns": [
@@ -617,7 +674,7 @@
             "name": "Pinterestbot",
             "patterns": [
                 "Pinterestbot",
-                "Pinterest/"
+                "pinterest.com/bot.html"
             ],
             "class": "social",
             "owner": "Pinterest",
@@ -702,7 +759,7 @@
             "id": "jetpack",
             "name": "Jetpack",
             "patterns": [
-                "Jetpack"
+                "Jetpack by WordPress.com"
             ],
             "class": "monitoring",
             "owner": "Automattic",

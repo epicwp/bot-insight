@@ -74,7 +74,7 @@ final class BotList {
 	 * @param string $path Path of bots.json.
 	 * @throws \RuntimeException When the file is missing or invalid.
 	 */
-	public static function fromFile( string $path ): BotList { // phpcs:ignore WordPress.NamingConventions.ValidFunctionName.MethodNameInvalid -- Name fixed by the plugin API.
+	public static function fromFile( string $path ): BotList {
 		$json = is_readable( $path ) ? file_get_contents( $path ) : false; // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local bundled file.
 		$data = false === $json ? null : json_decode( $json, true );
 		if ( ! is_array( $data ) || ! isset( $data['bots'] ) || ! is_array( $data['bots'] ) ) {
@@ -142,7 +142,7 @@ final class BotList {
 	 *
 	 * @return array<string,int>
 	 */
-	public function currentMajors(): array { // phpcs:ignore WordPress.NamingConventions.ValidFunctionName.MethodNameInvalid -- Name fixed by the plugin API.
+	public function currentMajors(): array {
 		return $this->majors;
 	}
 }
