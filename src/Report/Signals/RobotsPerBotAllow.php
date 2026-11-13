@@ -1,6 +1,6 @@
 <?php
 /**
- * Signal: robots.txt allows everything for AI training or SEO bots.
+ * Signal: robots.txt Allow: / groups for AI training or SEO bots.
  *
  * @package BotInsight
  * @license GPL-2.0-or-later
@@ -90,8 +90,8 @@ final class RobotsPerBotAllow implements Signal {
 			'title'    => sprintf(
 				/* translators: 1: comma-separated robots.txt user agents, 2: number of disallowed paths */
 				_n(
-					'robots.txt allows everything for %1$s while the * group disallows %2$s path.',
-					'robots.txt allows everything for %1$s while the * group disallows %2$s paths.',
+					'robots.txt has an Allow: / group for %1$s while the * group disallows %2$s path.',
+					'robots.txt has an Allow: / group for %1$s while the * group disallows %2$s paths.',
 					$star,
 					'bot-insight'
 				),

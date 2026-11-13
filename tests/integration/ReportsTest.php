@@ -94,6 +94,7 @@ final class ReportsTest extends \WP_UnitTestCase {
 		$this->daily( '2026-11-13', 'people', 30 );
 		$this->daily( '2026-11-13', 'search', 2 );
 		$this->daily( '2026-11-01', 'people', 500 );
+		// 2026-11-13 is not a whole UTC day inside the 24h period; 2026-11-12 is.
 
 		$totals = $this->reports()->totals( Period::fromKey( '24h', self::NOW ) );
 
@@ -104,10 +105,20 @@ final class ReportsTest extends \WP_UnitTestCase {
 				'bot_share'                => 0.5,
 				'bot_php_hours'            => 1.0,
 				'verified_search_requests' => 55,
-				'unique_client_days'       => 72,
+				'unique_client_days'       => 40,
 			),
 			$totals
 		);
+	}
+
+	public function test_unique_client_days_counts_only_whole_utc_days(): void {
+		$this->daily( '2026-11-11', 'people', 1 );
+		$this->daily( '2026-11-12', 'people', 10 );
+		$this->daily( '2026-11-13', 'people', 100 );
+		// 24h ending at 05:59 UTC on 2026-11-13 holds no whole UTC day.
+		$this->assertSame( 0, $this->reports()->totals( Period::fromKey( '24h', self::NOW + 5 * HOUR_IN_SECONDS ) )['unique_client_days'] );
+		// 7d from 2026-11-06 00:00 UTC: whole days 06..12.
+		$this->assertSame( 11, $this->reports()->totals( Period::fromKey( '7d', self::NOW ) )['unique_client_days'] );
 	}
 
 	public function test_totals_without_data(): void {
@@ -152,6 +163,29 @@ final class ReportsTest extends \WP_UnitTestCase {
 		);
 	}
 
+	public function test_per_day_counts_the_25_hour_dst_day(): void {
+		update_option( 'timezone_string', 'Europe/Amsterdam' );
+		// Local 2026-10-25 runs from 2026-10-24 22:00 UTC to 2026-10-25 23:00 UTC: 25 hours.
+		$first = gmmktime( 22, 0, 0, 10, 24, 2026 );
+		for ( $i = 0; $i < 25; $i++ ) {
+			$this->hourly( array( 'hour' => $first + $i * HOUR_IN_SECONDS, 'client_class' => 'people', 'php_ms_sum' => 3600000 ) );
+		}
+		$this->hourly( array( 'hour' => $first - HOUR_IN_SECONDS, 'client_class' => 'people', 'php_ms_sum' => 3600000 ) );
+		$this->hourly( array( 'hour' => $first + 25 * HOUR_IN_SECONDS, 'client_class' => 'people', 'php_ms_sum' => 3600000 ) );
+
+		$days = $this->reports()->perDay( Period::fromKey( '30d', self::NOW ) );
+		$map  = array_column( $days, 'by_class', 'day' );
+
+		$this->assertSame( array( 'people' => 25.0 ), $map['2026-10-25'] );
+		$this->assertSame( array( 'people' => 1.0 ), $map['2026-10-24'] );
+		$this->assertSame( array( 'people' => 1.0 ), $map['2026-10-26'] );
+		// One entry per local day, no gaps or repeats across the DST change.
+		$this->assertCount( 31, $days );
+		$this->assertSame( '2026-10-14', $days[0]['day'] );
+		$this->assertSame( '2026-11-13', $days[30]['day'] );
+		$this->assertSame( array_values( array_unique( array_column( $days, 'day' ) ) ), array_column( $days, 'day' ) );
+	}
+
 	public function test_per_day_in_utc(): void {
 		$this->hourly( array( 'hour' => self::HOUR - HOUR_IN_SECONDS, 'client_class' => 'people', 'php_ms_sum' => 3600000 ) );
 		$days = $this->reports()->perDay( Period::fromKey( '24h', self::NOW ) );
@@ -170,28 +204,48 @@ final class ReportsTest extends \WP_UnitTestCase {
 		$this->hourly( array( 'client_class' => 'search', 'bot' => 'googlebot', 'verified' => 1, 'requests' => 60, 'php_ms_sum' => 7200000 ) );
 		$this->hourly( array( 'client_class' => 'search', 'bot' => 'googlebot', 'verified' => 3, 'requests' => 5, 'php_ms_sum' => 0, 'route' => 'x' ) );
 		// An impostor claiming Googlebot is classed unknown_bot but still carries the bot id.
-		$this->hourly( array( 'client_class' => 'unknown_bot', 'bot' => 'googlebot', 'verified' => 2, 'requests' => 8, 'php_ms_sum' => 0 ) );
+		$this->hourly( array( 'client_class' => 'unknown_bot', 'bot' => 'googlebot', 'verified' => 2, 'requests' => 8, 'php_ms_sum' => 108000 ) );
 		$this->hourly( array( 'client_class' => 'ai_training', 'bot' => 'gptbot', 'verified' => 1, 'requests' => 30, 'php_ms_sum' => 5400000 ) );
 
 		$rows = $this->reports()->visitors( Period::fromKey( '24h', self::NOW ) );
 
-		$this->assertSame( array( 'Googlebot', 'GPTBot', 'Suspected automated', 'People', 'Unknown bots', 'Script libraries' ), array_column( $rows, 'bot' ) );
+		$this->assertSame( array( 'Googlebot', 'GPTBot', 'Suspected automated', 'People', 'Googlebot (failed verification)', 'Unknown bots', 'Script libraries' ), array_column( $rows, 'bot' ) );
 		$this->assertSame(
 			array(
 				'id'          => 'googlebot',
 				'bot'         => 'Googlebot',
 				'class'       => 'search',
-				'requests'    => 73,
+				'requests'    => 65,
 				'php_hours'   => 2.0,
 				'verified'    => array(
 					'yes'       => 60,
-					'no'        => 8,
+					'no'        => 0,
 					'unchecked' => 5,
 				),
 				'findability' => true,
+				'impostor'    => false,
 			),
 			$rows[0]
 		);
+		// Impostors never count towards the genuine bot.
+		$this->assertSame(
+			array(
+				'id'          => 'googlebot',
+				'bot'         => 'Googlebot (failed verification)',
+				'class'       => 'unknown_bot',
+				'requests'    => 8,
+				'php_hours'   => 0.03,
+				'verified'    => array(
+					'yes'       => 0,
+					'no'        => 8,
+					'unchecked' => 0,
+				),
+				'findability' => false,
+				'impostor'    => true,
+			),
+			$rows[4]
+		);
+		$this->assertSame( array( false, false, false, false, true, false, false ), array_column( $rows, 'impostor' ) );
 		$this->assertFalse( $rows[1]['findability'] );
 		$this->assertSame( 'ai_training', $rows[1]['class'] );
 		$this->assertSame( 'suspected', $rows[2]['class'] );
@@ -236,6 +290,33 @@ final class ReportsTest extends \WP_UnitTestCase {
 			$rows
 		);
 		$this->assertCount( 1, $this->reports()->params( Period::fromKey( '24h', self::NOW ), 1 ) );
+	}
+
+	public function test_params_groups_overflow_rows_apart(): void {
+		$this->hourly( array( 'client_class' => 'people', 'requests' => 10, 'php_ms_sum' => 360000 ) );
+		// Aggregator overflow rows: param_sig_id 0 and status_class xxx.
+		$this->hourly( array( 'client_class' => 'suspected', 'status_class' => 'xxx', 'route' => 'other', 'requests' => 20, 'php_ms_sum' => 720000 ) );
+		$this->hourly( array( 'client_class' => 'people', 'status_class' => 'xxx', 'route' => 'other', 'requests' => 20, 'php_ms_sum' => 720000 ) );
+
+		$rows = $this->reports()->params( Period::fromKey( '24h', self::NOW ) );
+
+		$this->assertSame(
+			array(
+				array(
+					'params'    => '(other combinations)',
+					'requests'  => 40,
+					'php_hours' => 0.4,
+					'bot_share' => 0.5,
+				),
+				array(
+					'params'    => '(none)',
+					'requests'  => 10,
+					'php_hours' => 0.1,
+					'bot_share' => 0.0,
+				),
+			),
+			$rows
+		);
 	}
 
 	// Unknown countries.
@@ -518,7 +599,7 @@ final class ReportsTest extends \WP_UnitTestCase {
 		$out = ( new RobotsPerBotAllow() )->evaluate( $this->reports(), Period::fromKey( '24h', self::NOW ) );
 
 		$this->assertSame( 'robots_per_bot_allow', $out['id'] );
-		$this->assertSame( 'robots.txt allows everything for gptbot, AhrefsBot while the * group disallows 2 paths.', $out['title'] );
+		$this->assertSame( 'robots.txt has an Allow: / group for gptbot, AhrefsBot while the * group disallows 2 paths.', $out['title'] );
 		$this->assertSame(
 			array(
 				'agents'         => 'gptbot, AhrefsBot',

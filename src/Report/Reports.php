@@ -32,6 +32,11 @@ final class Reports {
 	public const UNKNOWN_CLASSES = array( 'unknown_bot', 'suspected', 'library' );
 
 	/**
+	 * `status_class` of the aggregator's overflow rows.
+	 */
+	public const OVERFLOW_STATUS = 'xxx';
+
+	/**
 	 * Milliseconds per hour.
 	 */
 	private const MS_PER_HOUR = 3600000;
@@ -149,6 +154,9 @@ final class Reports {
 	/**
 	 * Headline numbers.
 	 *
+	 * `unique_client_days` counts client-days over whole UTC days in the period: the sum of
+	 * `daily.unique_ips` for every UTC day that lies fully inside it (0 or 1 day for `24h`).
+	 *
 	 * @param Period $p Period.
 	 * @return array{requests: int, php_hours: float, bot_share: float, bot_php_hours: float, verified_search_requests: int, unique_client_days: int}
 	 */
@@ -167,11 +175,13 @@ final class Reports {
 				);
 				$php     = (int) ( $row['php'] ?? 0 );
 				$bot_php = (int) ( $row['bot_php'] ?? 0 );
-				$uniques = $this->wpdb->get_var(
+				$first   = (int) ( ceil( $p->start / DAY_IN_SECONDS ) * DAY_IN_SECONDS );
+				$stop    = $p->end - $p->end % DAY_IN_SECONDS;
+				$uniques = $first >= $stop ? 0 : $this->wpdb->get_var(
 					$this->wpdb->prepare(
-						"SELECT COALESCE(SUM(unique_ips), 0) FROM {$this->t['daily']} WHERE day >= %s AND day <= %s",
-						gmdate( 'Y-m-d', $p->start ),
-						gmdate( 'Y-m-d', $p->end - 1 )
+						"SELECT COALESCE(SUM(unique_ips), 0) FROM {$this->t['daily']} WHERE day >= %s AND day < %s",
+						gmdate( 'Y-m-d', $first ),
+						gmdate( 'Y-m-d', $stop )
 					)
 				);
 				return array(
@@ -233,15 +243,18 @@ final class Reports {
 	}
 
 	/**
-	 * Visitors: one row per known bot, plus one per class for rows without a bot. Sorted by PHP
-	 * hours, most first.
+	 * Visitors: one row per known bot, one per impersonated bot, plus one per class for rows
+	 * without a bot (including the aggregator's overflow rows, which keep their class). Sorted by
+	 * PHP hours, most first.
 	 *
 	 * `id` is the bots.json id or ''. `verified` sums requests by verified code (1 yes, 2 no,
-	 * 3 unchecked); `findability` comes from the bot list.
+	 * 3 unchecked); `findability` comes from the bot list. Requests that claimed a bot and failed
+	 * verification (`unknown_bot`, verified 2) form their own row: label "<name> (failed
+	 * verification)", class `unknown_bot`, findability false, `impostor` true.
 	 *
 	 * @param Period $p     Period.
 	 * @param int    $limit Most rows.
-	 * @return list<array{id: string, bot: string, class: string, requests: int, php_hours: float, verified: array{yes: int, no: int, unchecked: int}, findability: bool}>
+	 * @return list<array{id: string, bot: string, class: string, requests: int, php_hours: float, verified: array{yes: int, no: int, unchecked: int}, findability: bool, impostor: bool}>
 	 */
 	public function visitors( Period $p, int $limit = 25 ): array {
 		$all = $this->memo(
@@ -264,10 +277,16 @@ final class Reports {
 					$bot_id = (int) $row['bot_id'];
 					$class  = (string) $row['client_class'];
 					$id     = $bot_id > 0 ? ( $names[ $bot_id ] ?? '' ) : '';
-					$key    = '' !== $id ? 'b:' . $id : 'c:' . $class;
+					$fake   = '' !== $id && 'unknown_bot' === $class && 2 === (int) $row['verified'];
+					if ( $fake ) {
+						$key = 'i:' . $id;
+					} else {
+						$key = '' !== $id ? 'b:' . $id : 'c:' . $class;
+					}
 					if ( ! isset( $acc[ $key ] ) ) {
 						$acc[ $key ] = array(
 							'id'       => $id,
+							'impostor' => $fake,
 							'requests' => 0,
 							'php'      => 0,
 							'verified' => array(
@@ -291,8 +310,18 @@ final class Reports {
 				foreach ( $acc as $entry ) {
 					$bot = '' !== $entry['id'] ? $this->bots->get( $entry['id'] ) : null;
 					arsort( $entry['classes'] );
-					$class = null !== $bot ? (string) $bot['class'] : (string) array_key_first( $entry['classes'] );
-					if ( null !== $bot ) {
+					if ( $entry['impostor'] ) {
+						$class = 'unknown_bot';
+					} else {
+						$class = null !== $bot ? (string) $bot['class'] : (string) array_key_first( $entry['classes'] );
+					}
+					if ( $entry['impostor'] ) {
+						$label = sprintf(
+							/* translators: %s: bot name */
+							__( '%s (failed verification)', 'bot-insight' ),
+							null !== $bot ? (string) $bot['name'] : $entry['id']
+						);
+					} elseif ( null !== $bot ) {
 						$label = (string) $bot['name'];
 					} elseif ( '' !== $entry['id'] ) {
 						$label = $entry['id'];
@@ -306,7 +335,8 @@ final class Reports {
 						'requests'    => $entry['requests'],
 						'php_ms'      => $entry['php'],
 						'verified'    => $entry['verified'],
-						'findability' => null !== $bot && ! empty( $bot['findability'] ),
+						'findability' => ! $entry['impostor'] && null !== $bot && ! empty( $bot['findability'] ),
+						'impostor'    => $entry['impostor'],
 					);
 				}
 				usort(
@@ -324,6 +354,7 @@ final class Reports {
 						'php_hours'   => self::hours( $row['php_ms'] ),
 						'verified'    => $row['verified'],
 						'findability' => $row['findability'],
+						'impostor'    => $row['impostor'],
 					);
 				}
 				return $out;
@@ -333,7 +364,9 @@ final class Reports {
 	}
 
 	/**
-	 * Query-parameter signatures by PHP time, with the bot share of each.
+	 * Query-parameter signatures by PHP time, with the bot share of each. Requests without
+	 * parameters are `(none)`; the aggregator's overflow rows (`status_class` `xxx`, signature
+	 * dropped) are grouped apart as `(other combinations)`.
 	 *
 	 * @param Period $p     Period.
 	 * @param int    $limit Most rows.
@@ -341,18 +374,23 @@ final class Reports {
 	 */
 	public function params( Period $p, int $limit = 15 ): array {
 		$rows   = $this->rows(
-			"SELECT param_sig_id, SUM(requests) AS requests, SUM(php_ms_sum) AS php,
+			"SELECT param_sig_id, IF(status_class = %s, 1, 0) AS overflow, SUM(requests) AS requests, SUM(php_ms_sum) AS php,
 				SUM(CASE WHEN client_class <> %s THEN php_ms_sum ELSE 0 END) AS bot_php
 			FROM {$this->t['hourly']} WHERE hour >= %d AND hour < %d
-			GROUP BY param_sig_id ORDER BY php DESC, requests DESC, param_sig_id ASC LIMIT %d",
-			array( 'people', $p->start, $p->end, max( 0, $limit ) )
+			GROUP BY param_sig_id, overflow ORDER BY php DESC, requests DESC, param_sig_id ASC, overflow ASC LIMIT %d",
+			array( self::OVERFLOW_STATUS, 'people', $p->start, $p->end, max( 0, $limit ) )
 		);
 		$values = $this->dictValues( 'param_sig', array_column( $rows, 'param_sig_id' ) );
 		$out    = array();
 		foreach ( $rows as $row ) {
 			$value = $values[ (int) $row['param_sig_id'] ] ?? '';
+			if ( 1 === (int) $row['overflow'] ) {
+				$value = __( '(other combinations)', 'bot-insight' );
+			} elseif ( '' === $value ) {
+				$value = __( '(none)', 'bot-insight' );
+			}
 			$out[] = array(
-				'params'    => '' === $value ? __( '(none)', 'bot-insight' ) : $value,
+				'params'    => $value,
 				'requests'  => (int) $row['requests'],
 				'php_hours' => self::hours( (int) $row['php'] ),
 				'bot_share' => self::share( (int) $row['bot_php'], (int) $row['php'] ),
