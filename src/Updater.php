@@ -28,6 +28,9 @@ final class Updater {
 	 * @param string $plugin_file Absolute path of the main plugin file.
 	 */
 	public static function register( string $plugin_file ): void {
+		if ( ! class_exists( PucFactory::class ) ) {
+			return;
+		}
 		$checker = PucFactory::buildUpdateChecker( self::REPO, $plugin_file, 'bot-insight' );
 
 		/**

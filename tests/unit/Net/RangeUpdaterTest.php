@@ -18,6 +18,15 @@ final class RangeUpdaterTest extends TestCase {
 		$this->assertSame( array( '192.0.2.0/24', '2001:db8::/32' ), RangeUpdater::parse( $body ) );
 	}
 
+	public function test_parses_cloudflare_api_json(): void {
+		$body = '{"result":{"ipv4_cidrs":["192.0.2.0/24"],"ipv6_cidrs":["2001:db8::/32"],"etag":"x"},"success":true,"errors":[],"messages":[]}';
+		$this->assertSame( array( '192.0.2.0/24', '2001:db8::/32' ), RangeUpdater::parse( $body ) );
+	}
+
+	public function test_cloudflare_list_uses_the_api_host(): void {
+		$this->assertSame( array( 'https://api.cloudflare.com/client/v4/ips' ), RangeUpdater::SETS['cloudflare'] );
+	}
+
 	public function test_parses_plain_text(): void {
 		$this->assertSame( array( '198.51.100.0/24', '2001:db8::/32' ), RangeUpdater::parse( "198.51.100.0/24\n2001:db8::/32\n<html>\n" ) );
 	}

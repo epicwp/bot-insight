@@ -444,7 +444,7 @@ final class DailyTest extends \WP_UnitTestCase {
 		$this->settings( array( 'range_updates' => true ) );
 		$this->bodies = array(
 			'googlebot.json'   => '{"prefixes":[{"ipv4Prefix":"198.51.100.0/24"}]}',
-			'cloudflare.com'   => "203.0.113.0/24\n",
+			'cloudflare.com'   => '{"result":{"ipv4_cidrs":["203.0.113.0/24"],"ipv6_cidrs":[]},"success":true}',
 			'.json'            => '{"prefixes":[{"ipv6Prefix":"2001:db8::/32"}]}',
 		);
 		( new Daily( $wpdb ) )->run( self::NOW );

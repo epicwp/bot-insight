@@ -59,7 +59,7 @@ final class Plugin {
 		self::$cpu_start = Recorder::cpuMicros();
 
 		// Only the direct-download zip ships the updater and its library.
-		if ( class_exists( Updater::class ) && class_exists( \YahnisElsts\PluginUpdateChecker\v5\PucFactory::class ) ) {
+		if ( class_exists( Updater::class ) ) {
 			Updater::register( $file );
 		}
 
@@ -73,6 +73,43 @@ final class Plugin {
 		// Before the recorder registers, so an upgrade's buffer dir is in place.
 		add_action( 'plugins_loaded', array( self::class, 'maybeUpgrade' ), 5 );
 		add_action( 'plugins_loaded', array( Recorder::class, 'register' ) );
+		add_action( 'admin_init', array( self::class, 'addPrivacyPolicyContent' ) );
+		add_action( 'before_woocommerce_init', array( self::class, 'declareWooCompatibility' ) );
+	}
+
+	/**
+	 * Suggested text for the site's privacy policy (Settings > Privacy > Policy guide).
+	 */
+	public static function addPrivacyPolicyContent(): void {
+		if ( ! function_exists( 'wp_add_privacy_policy_content' ) ) {
+			return;
+		}
+		$paragraphs   = array(
+			__( 'This site uses the Bot Insight plugin to measure how much server time automated clients (bots) use. The data stays on this site\'s own server and is not shared with anyone.', 'bot-insight' ),
+			__( 'For each request that reaches the site, the visitor\'s IP address and browser user agent are held in a temporary file for a few minutes. They are then reduced to a hash of the IP address made with a random key that changes every day (so the hash cannot be traced back or linked across days), the network part of the address (the first three blocks of an IPv4 address, or the first 48 bits of an IPv6 address), and the browser or bot family. Of the visited address, only a URL pattern and the names of query parameters are stored, never their values. No names, email addresses, accounts or order details are stored.', 'bot-insight' ),
+			__( 'The plugin sets a cookie named bi_js with the value 1 when the browser runs JavaScript. It is strictly necessary to tell browsers apart from bots, contains no identifier and is deleted when the browser session ends.', 'bot-insight' ),
+		);
+		$retention    = (int) self::settings()['retention_days'];
+		$paragraphs[] = sprintf(
+			/* translators: %d: number of days the aggregated data is kept. */
+			__( 'The aggregated measurements are kept for %d days and then deleted.', 'bot-insight' ),
+			$retention
+		);
+		$content = '';
+		foreach ( $paragraphs as $paragraph ) {
+			$content .= '<p>' . esc_html( $paragraph ) . '</p>';
+		}
+		wp_add_privacy_policy_content( __( 'Bot Insight', 'bot-insight' ), wp_kses_post( $content ) );
+	}
+
+	/**
+	 * Declare compatibility with WooCommerce High-Performance Order Storage. The daily snapshot reads
+	 * order counts per country through either storage.
+	 */
+	public static function declareWooCompatibility(): void {
+		if ( class_exists( \Automattic\WooCommerce\Utilities\FeaturesUtil::class ) ) {
+			\Automattic\WooCommerce\Utilities\FeaturesUtil::declare_compatibility( 'custom_order_tables', BOT_INSIGHT_FILE, true );
+		}
 	}
 
 	/**

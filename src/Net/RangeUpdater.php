@@ -36,7 +36,7 @@ final class RangeUpdater {
 		'openai-chatgpt-user' => array( 'https://openai.com/chatgpt-user.json' ),
 		'perplexity-bot'      => array( 'https://www.perplexity.ai/perplexitybot.json' ),
 		'perplexity-user'     => array( 'https://www.perplexity.ai/perplexity-user.json' ),
-		'cloudflare'          => array( 'https://www.cloudflare.com/ips-v4', 'https://www.cloudflare.com/ips-v6' ),
+		'cloudflare'          => array( 'https://api.cloudflare.com/client/v4/ips' ),
 	);
 
 	/**
@@ -101,7 +101,8 @@ final class RangeUpdater {
 	}
 
 	/**
-	 * Extract CIDR strings from a vendor JSON (`prefixes[].ipv4Prefix|ipv6Prefix`) or plain-text list.
+	 * Extract CIDR strings from a vendor JSON (`prefixes[].ipv4Prefix|ipv6Prefix`), the Cloudflare
+	 * API JSON (`result.ipv4_cidrs|ipv6_cidrs`) or a plain-text list.
 	 *
 	 * @param string $body Response body.
 	 * @return string[]
@@ -114,6 +115,14 @@ final class RangeUpdater {
 				foreach ( array( 'ipv4Prefix', 'ipv6Prefix' ) as $key ) {
 					if ( is_array( $row ) && isset( $row[ $key ] ) && is_string( $row[ $key ] ) ) {
 						$out[] = $row[ $key ];
+					}
+				}
+			}
+			$result = is_array( $json['result'] ?? null ) ? $json['result'] : array();
+			foreach ( array( 'ipv4_cidrs', 'ipv6_cidrs' ) as $key ) {
+				foreach ( is_array( $result[ $key ] ?? null ) ? $result[ $key ] : array() as $cidr ) {
+					if ( is_string( $cidr ) ) {
+						$out[] = $cidr;
 					}
 				}
 			}

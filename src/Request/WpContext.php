@@ -23,7 +23,7 @@ final class WpContext {
 	 * @return array<string, mixed> Keys used by `Route`, plus `paged` (int) and `path` (string).
 	 */
 	public static function collect(): array {
-		$uri  = isset( $_SERVER['REQUEST_URI'] ) && is_string( $_SERVER['REQUEST_URI'] ) ? $_SERVER['REQUEST_URI'] : '/'; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Only collapsed into a pattern, never output.
+		$uri  = isset( $_SERVER['REQUEST_URI'] ) && is_string( $_SERVER['REQUEST_URI'] ) ? wp_unslash( $_SERVER['REQUEST_URI'] ) : '/'; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Only collapsed into a pattern, never output.
 		$path = substr( $uri, 0, strcspn( $uri, '?#' ) );
 
 		$ajax  = function_exists( 'wp_doing_ajax' ) && wp_doing_ajax();
@@ -33,7 +33,7 @@ final class WpContext {
 			'rest_route'          => self::restRoute(),
 			'wc_ajax'             => self::queryArg( 'wc-ajax' ),
 			'wc_api'              => self::queryArg( 'wc-api' ),
-			'ajax_action'         => $ajax && isset( $_REQUEST['action'] ) && is_string( $_REQUEST['action'] ) ? $_REQUEST['action'] : '', // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Route cleans it.
+			'ajax_action'         => $ajax && isset( $_REQUEST['action'] ) && is_string( $_REQUEST['action'] ) ? wp_unslash( $_REQUEST['action'] ) : '', // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Route cleans it.
 			'doing_cron'          => function_exists( 'wp_doing_cron' ) && wp_doing_cron(),
 			'xmlrpc'              => defined( 'XMLRPC_REQUEST' ) && XMLRPC_REQUEST,
 			'pagenow'             => isset( $GLOBALS['pagenow'] ) && is_string( $GLOBALS['pagenow'] ) ? $GLOBALS['pagenow'] : '',
@@ -50,7 +50,7 @@ final class WpContext {
 			'is_home'             => $query && is_home(),
 			'is_page'             => $query && is_page(),
 			'is_singular'         => $query && is_singular(),
-			'method'              => isset( $_SERVER['REQUEST_METHOD'] ) && is_string( $_SERVER['REQUEST_METHOD'] ) ? $_SERVER['REQUEST_METHOD'] : 'GET', // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Compared, then cleaned by the recorder.
+			'method'              => isset( $_SERVER['REQUEST_METHOD'] ) && is_string( $_SERVER['REQUEST_METHOD'] ) ? wp_unslash( $_SERVER['REQUEST_METHOD'] ) : 'GET', // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Compared, then cleaned by the recorder.
 			'logged_in_cookie'    => defined( 'LOGGED_IN_COOKIE' ) && isset( $_COOKIE[ LOGGED_IN_COOKIE ] ),
 			'cart_cookie'         => isset( $_COOKIE['woocommerce_items_in_cart'] ),
 			'has_query'           => ! empty( $_GET ),
@@ -84,7 +84,7 @@ final class WpContext {
 	 */
 	private static function queryArg( string $name ): string {
 		if ( isset( $_GET[ $name ] ) && is_string( $_GET[ $name ] ) ) {
-			return $_GET[ $name ]; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Route cleans it to [a-z0-9_-/].
+			return wp_unslash( $_GET[ $name ] ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Route cleans it to [a-z0-9_-/].
 		}
 		if ( isset( $GLOBALS['wp'] ) && $GLOBALS['wp'] instanceof \WP && isset( $GLOBALS['wp']->query_vars[ $name ] ) && is_string( $GLOBALS['wp']->query_vars[ $name ] ) ) {
 			return $GLOBALS['wp']->query_vars[ $name ];
