@@ -143,7 +143,7 @@ final class Recorder {
 			if ( defined( 'WP_CLI' ) && WP_CLI ) {
 				return;
 			}
-			$ua   = isset( $_SERVER['HTTP_USER_AGENT'] ) && is_string( $_SERVER['HTTP_USER_AGENT'] ) ? $_SERVER['HTTP_USER_AGENT'] : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Only compared.
+			$ua   = isset( $_SERVER['HTTP_USER_AGENT'] ) && is_string( $_SERVER['HTTP_USER_AGENT'] ) ? wp_unslash( $_SERVER['HTTP_USER_AGENT'] ) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Only compared.
 			$home = 0 === strncmp( $ua, 'WordPress/', 10 ) ? (string) wp_parse_url( home_url(), PHP_URL_HOST ) : '';
 			if ( self::isOwnBackgroundWork( wp_doing_cron(), self::ajaxAction(), $ua, $home ) ) {
 				return;
@@ -309,7 +309,7 @@ final class Recorder {
 		if ( ! wp_doing_ajax() || ! isset( $_REQUEST['action'] ) || ! is_string( $_REQUEST['action'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Only compared.
 			return '';
 		}
-		return $_REQUEST['action']; // phpcs:ignore WordPress.Security.NonceVerification.Recommended, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Only compared.
+		return wp_unslash( $_REQUEST['action'] ); // phpcs:ignore WordPress.Security.NonceVerification.Recommended, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Only compared.
 	}
 
 	/**
