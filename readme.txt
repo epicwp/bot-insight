@@ -70,7 +70,7 @@ To verify a request that claims to be a search or AI crawler (for example Google
 * When: only in the background fold, never during a visitor's request and not when the dashboard refreshes its numbers. At most 50 lookups per fold run; each result is cached on the site for 24 hours.
 * What is sent: the IP address of the client that claimed to be the crawler, and the host name its reverse lookup returned. No other data. Requests from ordinary browsers, and crawlers that come from their published ranges, are never looked up.
 
-
+= Crawler and CDN IP ranges (off by default) =
 
 When the site owner turns on "Refresh crawler IP ranges" in the settings (Tools > Bot Insight > Settings), a daily background job downloads, at most once a week, the IP ranges that crawler operators and Cloudflare publish, so the plugin can verify crawlers with current lists. Without this setting the lists shipped with the plugin are used.
 
@@ -104,7 +104,7 @@ Yes. The plugin reads the visitor's IP address from the CDN's header only when t
 
 = How much overhead does it add? =
 
-The target is under 0.5 ms per request at the 95th percentile. Recording is one append to a buffer file at the end of the request; the heavier work (classification, verification, aggregation) runs every five minutes in the background. The dashboard shows the measured overhead of the plugin itself: the CPU time the recorder uses per request, at the 95th percentile.
+The target is under 0.5 ms per request at the 95th percentile. Recording is one append to a buffer file at the end of the request; the heavier work (classification, verification, aggregation) runs every five minutes in the background. The dashboard shows the measured overhead of the plugin itself: the CPU time the recorder uses per request, excluding the file write, at the 95th percentile.
 
 = Are the site's own cron and background jobs counted? =
 
