@@ -24,7 +24,7 @@ use BotInsight\Storage\Schema;
  */
 final class Plugin {
 
-	public const VERSION = '0.0.0';
+	public const VERSION = '1.0.0';
 
 	/**
 	 * Defaults of option `bot_insight_settings`.

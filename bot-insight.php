@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       Bot Insight
  * Description:       Shows how much of your server's PHP time goes to which bots.
- * Version:           0.0.0
+ * Version:           1.0.0
  * Requires at least: 6.2
  * Requires PHP:      7.4
  * Author:            EpicWP
