@@ -17,8 +17,9 @@ Claude or Perplexity findability.
 
 ## Next step
 
-Robbert reviews the plan; then execute it task by task. Public repo:
-https://github.com/epicwp/bot-insight (nothing pushed yet).
+v1.0.0 is released (https://github.com/epicwp/bot-insight/releases) and running as first pilot on
+epicwpsolutions.com since 2026-11-13. Review the pilot results with `docs/pilot-checklist.md` (overhead go/no-go),
+then decide on the next pilot sites. Open items: `docs/superpowers/plans/2026-11-13-bot-insight-v1-rulings.md`.
 
 ## Rules
 
