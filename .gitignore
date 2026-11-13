@@ -15,3 +15,6 @@ dist/
 .phpunit.result.cache
 build/
 build-check/
+
+# WordPress core and config for integration tests (bin/install-wp-tests.sh)
+.wp-tests/

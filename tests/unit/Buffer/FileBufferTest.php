@@ -174,4 +174,40 @@ final class FileBufferTest extends TestCase {
 		}
 		$this->assertFalse( ( new FileBuffer( $this->dir . '/child' ) )->ensureDir() );
 	}
+
+	public function test_ensured_dir_is_recognised_as_own(): void {
+		$dir = $this->dir . '/bot-insight-own';
+		( new FileBuffer( $dir ) )->ensureDir();
+		$this->assertTrue( FileBuffer::isOwnDir( $dir ) );
+		$this->assertStringContainsString( FileBuffer::INDEX_MARKER, (string) file_get_contents( $dir . '/index.php' ) );
+		$this->assertTrue( ( new FileBuffer( $dir ) )->removeDir() );
+	}
+
+	public function test_dir_without_marker_is_not_own(): void {
+		file_put_contents( $this->dir . '/index.php', "<?php\n// Silence is golden.\n" );
+		$this->assertFalse( FileBuffer::isOwnDir( $this->dir ) );
+		$this->assertFalse( FileBuffer::isOwnDir( $this->dir . '/missing' ) );
+		$this->assertFalse( ( new FileBuffer( $this->dir ) )->removeDir() );
+		$this->assertFileExists( $this->dir . '/index.php' );
+	}
+
+	public function test_remove_dir_deletes_contents_but_not_symlink_targets(): void {
+		$dir    = $this->dir . '/bot-insight-own';
+		$target = $this->dir . '/outside';
+		mkdir( $target );
+		file_put_contents( $target . '/keep.txt', 'x' );
+		$buffer = new FileBuffer( $dir );
+		$buffer->ensureDir();
+		$buffer->append( $this->line( 1 ), self::NOW );
+		mkdir( $dir . '/nested' );
+		file_put_contents( $dir . '/nested/file.php', 'x' );
+		symlink( $target, $dir . '/link' );
+
+		$this->assertTrue( $buffer->removeDir() );
+
+		$this->assertDirectoryDoesNotExist( $dir );
+		$this->assertFileExists( $target . '/keep.txt' );
+		unlink( $target . '/keep.txt' );
+		rmdir( $target );
+	}
 }

@@ -8,7 +8,9 @@
 
 namespace BotInsight;
 
+use BotInsight\Buffer\FileBuffer;
 use BotInsight\Capture\Recorder;
+use BotInsight\Storage\Schema;
 
 /**
  * Entry point of the plugin.
@@ -55,7 +57,65 @@ final class Plugin {
 			Updater::register( $file );
 		}
 
+		register_activation_hook( $file, array( self::class, 'activate' ) );
+		// Before the recorder registers, so an upgrade's buffer dir is in place.
+		add_action( 'plugins_loaded', array( self::class, 'maybeUpgrade' ), 5 );
 		add_action( 'plugins_loaded', array( Recorder::class, 'register' ) );
+	}
+
+	/**
+	 * Activation: tables, seeded options, buffer directory and hashing secret. Idempotent.
+	 */
+	public static function activate(): void {
+		Schema::install();
+		self::ensureBufferDir();
+		if ( false === get_option( 'bot_insight_secret' ) ) {
+			add_option( 'bot_insight_secret', wp_generate_password( 32 ), '', false );
+		}
+	}
+
+	/**
+	 * Run the activation routine when the stored schema version is lower than the code's.
+	 *
+	 * Covers plugin updates, which do not fire the activation hook. One autoloaded option read
+	 * otherwise.
+	 */
+	public static function maybeUpgrade(): void {
+		if ( (int) get_option( Schema::VERSION_OPTION, 0 ) < Schema::DB_VERSION ) {
+			self::activate();
+		}
+	}
+
+	/**
+	 * Make sure the buffer directory exists and is stored in `bot_insight_buffer_dir`.
+	 *
+	 * Keeps a stored directory that still exists. Otherwise creates
+	 * `<uploads>/bot-insight-<12 random chars>`: the random name keeps it from being guessed
+	 * on servers that ignore its `.htaccess` (nginx).
+	 *
+	 * @return string The directory, or '' when it could not be created.
+	 */
+	public static function ensureBufferDir(): string {
+		$stored = get_option( 'bot_insight_buffer_dir', '' );
+		if ( is_string( $stored ) && '' !== $stored && is_dir( $stored ) ) {
+			( new FileBuffer( $stored ) )->ensureDir();
+			return $stored;
+		}
+
+		$uploads = wp_upload_dir( null, false );
+		if ( ! empty( $uploads['error'] ) || ! is_string( $uploads['basedir'] ) || '' === $uploads['basedir'] ) {
+			return '';
+		}
+		$dir = untrailingslashit( $uploads['basedir'] ) . '/bot-insight-' . wp_generate_password( 12, false );
+		if ( ! ( new FileBuffer( $dir ) )->ensureDir() ) {
+			return '';
+		}
+		if ( false === get_option( 'bot_insight_buffer_dir' ) ) {
+			add_option( 'bot_insight_buffer_dir', $dir, '', true );
+		} else {
+			update_option( 'bot_insight_buffer_dir', $dir );
+		}
+		return $dir;
 	}
 
 	/**

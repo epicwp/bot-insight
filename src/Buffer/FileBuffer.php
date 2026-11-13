@@ -26,6 +26,11 @@ final class FileBuffer {
 	public const HEADER = "<?php exit; ?>\n";
 
 	/**
+	 * Text in the `index.php` of every buffer directory; marks a directory as the plugin's own.
+	 */
+	public const INDEX_MARKER = 'Bot Insight buffer directory';
+
+	/**
 	 * Buffer directory without a trailing slash.
 	 *
 	 * @var string
@@ -139,7 +144,7 @@ final class FileBuffer {
 			return false;
 		}
 		if ( ! @is_file( $this->dir . '/index.php' ) ) {
-			@file_put_contents( $this->dir . '/index.php', "<?php\n// Silence is golden.\n" );
+			@file_put_contents( $this->dir . '/index.php', "<?php\n// " . self::INDEX_MARKER . ". Silence is golden.\n" );
 		}
 		if ( ! @is_file( $this->dir . '/.htaccess' ) ) {
 			@file_put_contents(
@@ -148,6 +153,56 @@ final class FileBuffer {
 			);
 		}
 		return @is_writable( $this->dir );
+	}
+
+	/**
+	 * Whether a directory was made by `ensureDir()`: a real directory (not a symlink) whose
+	 * `index.php` carries the marker.
+	 *
+	 * @param string $dir Directory.
+	 * @return bool
+	 */
+	public static function isOwnDir( string $dir ): bool {
+		$dir = rtrim( $dir, '/\\' );
+		if ( '' === $dir || @is_link( $dir ) || ! @is_dir( $dir ) || ! @is_file( $dir . '/index.php' ) ) {
+			return false;
+		}
+		$head = @file_get_contents( $dir . '/index.php', false, null, 0, 512 );
+		return is_string( $head ) && false !== strpos( $head, self::INDEX_MARKER );
+	}
+
+	/**
+	 * Delete the directory and everything in it, but only when it is the plugin's own.
+	 *
+	 * Symbolic links are removed, never followed.
+	 *
+	 * @return bool Whether the directory is gone afterwards.
+	 */
+	public function removeDir(): bool {
+		if ( ! self::isOwnDir( $this->dir ) ) {
+			return false;
+		}
+		try {
+			$items = new \RecursiveIteratorIterator(
+				new \RecursiveDirectoryIterator( $this->dir, \FilesystemIterator::SKIP_DOTS ),
+				\RecursiveIteratorIterator::CHILD_FIRST
+			);
+			foreach ( $items as $item ) {
+				if ( ! $item instanceof \SplFileInfo ) {
+					continue;
+				}
+				$path = $item->getPathname();
+				if ( $item->isDir() && ! $item->isLink() ) {
+					@rmdir( $path );
+				} else {
+					@unlink( $path );
+				}
+			}
+		} catch ( \Throwable $e ) {
+			return false;
+		}
+		@rmdir( $this->dir );
+		return ! @is_dir( $this->dir );
 	}
 
 	/**

@@ -2,8 +2,9 @@
 <ruleset name="Bot Insight">
 	<description>Coding standards for Bot Insight.</description>
 
-	<!-- Scans bot-insight.php, uninstall.php (once it exists) and src/. -->
+	<!-- Scans bot-insight.php, uninstall.php and src/. -->
 	<file>bot-insight.php</file>
+	<file>uninstall.php</file>
 	<file>src</file>
 
 	<arg name="extensions" value="php"/>

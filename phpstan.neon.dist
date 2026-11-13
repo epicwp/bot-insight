@@ -3,3 +3,4 @@ parameters:
     paths:
         - src
         - bot-insight.php
+        - uninstall.php
