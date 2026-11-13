@@ -348,22 +348,48 @@ final class ReportsTest extends \WP_UnitTestCase {
 
 	// Signals breakdown.
 
-	public function test_signals_breakdown_scaled_by_sample_rate(): void {
-		update_option( 'bot_insight_sample_rate', 3 );
-		$this->sample( array( 'client_class' => 'suspected', 'signals' => 1 | 2 ) );
-		$this->sample( array( 'client_class' => 'suspected', 'signals' => 1 | 4 | 16 ) );
-		$this->sample( array( 'client_class' => 'people', 'signals' => 1 ) );
-		$this->sample( array( 'client_class' => 'suspected', 'signals' => 1 | 2, 'ts' => self::NOW - 40 * DAY_IN_SECONDS ) );
+	public function test_signals_breakdown_sums_sample_weights(): void {
+		// The rate in effect now plays no part: every row carries the rate it was taken at.
+		update_option( 'bot_insight_sample_rate', 1000 );
+		$this->sample( array( 'client_class' => 'suspected', 'signals' => 1 | 2, 'weight' => 1, 'ts' => self::NOW - 3 * DAY_IN_SECONDS ) );
+		$this->sample( array( 'client_class' => 'suspected', 'signals' => 1 | 4 | 16, 'weight' => 40 ) );
+		$this->sample( array( 'client_class' => 'people', 'signals' => 1, 'weight' => 40 ) );
+		$this->sample( array( 'client_class' => 'suspected', 'signals' => 1 | 2, 'weight' => 40, 'ts' => self::NOW - 40 * DAY_IN_SECONDS ) );
 
 		$this->assertSame(
 			array(
-				'no_js'           => 6,
-				'no_sec_fetch'    => 3,
-				'no_accept_lang'  => 3,
+				'no_js'           => 41,
+				'no_sec_fetch'    => 1,
+				'no_accept_lang'  => 40,
 				'get_add_to_cart' => 0,
-				'ua_outdated'     => 3,
+				'ua_outdated'     => 40,
 			),
 			$this->reports()->signalsBreakdown( Period::fromKey( '7d', self::NOW ) )
+		);
+	}
+
+	public function test_sample_facts_cover_only_the_sample_window(): void {
+		$this->sample( array( 'client_class' => 'suspected', 'signals' => 1, 'method' => 'GET', 'params' => 'add-to-cart', 'weight' => 5 ) );
+		// Older than the 14 days the sample is kept, but not yet removed by the daily job.
+		$this->sample( array( 'client_class' => 'suspected', 'signals' => 1, 'method' => 'GET', 'params' => 'add-to-cart', 'weight' => 7, 'ts' => self::NOW - 20 * DAY_IN_SECONDS ) );
+
+		$r   = $this->reports();
+		$p30 = Period::fromKey( '30d', self::NOW );
+		$p7  = Period::fromKey( '7d', self::NOW );
+
+		$this->assertSame( 5, $r->signalsBreakdown( $p30 )['no_js'] );
+		$this->assertSame( 5, $r->getAddToCartRequests( $p30 ) );
+		$this->assertSame( 14, $r->sampleDays( $p30 ) );
+		$this->assertSame( 0, $r->sampleDays( $p7 ) );
+
+		$out = ( new GetAddToCart() )->evaluate( $r, $p30 );
+		$this->assertSame( 'About 5 GET requests with add-to-cart came from bots and suspected automated clients in the last 14 days.', $out['title'] );
+		$this->assertSame(
+			array(
+				'requests'    => 5,
+				'sample_days' => 14,
+			),
+			$out['facts']
 		);
 	}
 
@@ -542,23 +568,23 @@ final class ReportsTest extends \WP_UnitTestCase {
 	}
 
 	public function test_get_add_to_cart(): void {
-		update_option( 'bot_insight_sample_rate', 5 );
-		$this->sample( array( 'client_class' => 'suspected', 'method' => 'GET', 'params' => 'add-to-cart,quantity' ) );
-		$this->sample( array( 'client_class' => 'unknown_bot', 'method' => 'GET', 'params' => 'add-to-cart' ) );
-		$this->sample( array( 'client_class' => 'suspected', 'method' => 'GET', 'params' => 'no-add-to-cart' ) );
-		$this->sample( array( 'client_class' => 'people', 'method' => 'GET', 'params' => 'add-to-cart' ) );
+		update_option( 'bot_insight_sample_rate', 1000 );
+		$this->sample( array( 'client_class' => 'suspected', 'method' => 'GET', 'params' => 'add-to-cart,quantity', 'weight' => 5 ) );
+		$this->sample( array( 'client_class' => 'unknown_bot', 'method' => 'GET', 'params' => 'add-to-cart', 'weight' => 3 ) );
+		$this->sample( array( 'client_class' => 'suspected', 'method' => 'GET', 'params' => 'no-add-to-cart', 'weight' => 5 ) );
+		$this->sample( array( 'client_class' => 'people', 'method' => 'GET', 'params' => 'add-to-cart', 'weight' => 5 ) );
 
 		$r   = $this->reports();
 		$p   = Period::fromKey( '24h', self::NOW );
 		$out = ( new GetAddToCart() )->evaluate( $r, $p );
 
-		$this->assertSame( 10, $r->getAddToCartRequests( $p ) );
+		$this->assertSame( 8, $r->getAddToCartRequests( $p ) );
 		$this->assertSame( 'get_add_to_cart', $out['id'] );
-		$this->assertSame( 'About 10 GET requests with add-to-cart came from bots and suspected automated clients.', $out['title'] );
+		$this->assertSame( 'About 8 GET requests with add-to-cart came from bots and suspected automated clients.', $out['title'] );
 		$this->assertSame(
 			array(
-				'requests'    => 10,
-				'sample_rate' => 5,
+				'requests'    => 8,
+				'sample_days' => 0,
 			),
 			$out['facts']
 		);

@@ -9,10 +9,12 @@
 namespace BotInsight\Site;
 
 use BotInsight\Buffer\FileBuffer;
+use BotInsight\Fold\SampleRate;
 use BotInsight\Geo\GeoUpdater;
 use BotInsight\Net\IpRanges;
 use BotInsight\Net\RangeUpdater;
 use BotInsight\Plugin;
+use BotInsight\Report\Reports;
 use BotInsight\Storage\Schema;
 
 // phpcs:disable WordPress.DB.DirectDatabaseQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared, WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Exception messages go to an option, never to HTML. The plugin's own tables; names come from Schema::tables(), values go through prepare().
@@ -37,11 +39,6 @@ final class Daily {
 	private const BATCH = 5000;
 
 	/**
-	 * Days sample rows are kept.
-	 */
-	private const SAMPLE_DAYS = 14;
-
-	/**
 	 * Days load samples are kept in their option.
 	 */
 	private const LOAD_DAYS = 2;
@@ -50,11 +47,6 @@ final class Daily {
 	 * Days after which refreshed ranges are fetched again.
 	 */
 	private const RANGE_DAYS = 7;
-
-	/**
-	 * Sample rows wanted per day.
-	 */
-	private const SAMPLES_PER_DAY = 5000;
 
 	/**
 	 * Database handle.
@@ -239,7 +231,7 @@ final class Daily {
 		$this->deleteBatched( "DELETE FROM {$t['daily']} WHERE day < %s LIMIT " . self::BATCH, $date );
 		$this->deleteBatched( "DELETE FROM {$t['snapshot']} WHERE day < %s LIMIT " . self::BATCH, $date );
 		$this->deleteBatched( "DELETE FROM {$t['events']} WHERE ts < %d LIMIT " . self::BATCH, $cutoff );
-		$this->deleteBatched( "DELETE FROM {$t['sample']} WHERE ts < %d LIMIT " . self::BATCH, $now - self::SAMPLE_DAYS * DAY_IN_SECONDS );
+		$this->deleteBatched( "DELETE FROM {$t['sample']} WHERE ts < %d LIMIT " . self::BATCH, $now - Reports::SAMPLE_DAYS * DAY_IN_SECONDS );
 	}
 
 	/**
@@ -270,7 +262,7 @@ final class Daily {
 		}
 		$table    = Schema::tables()['hourly'];
 		$requests = (int) $this->wpdb->get_var( $this->wpdb->prepare( "SELECT SUM(requests) FROM {$table} WHERE hour >= %d AND hour < %d", $day, $day + DAY_IN_SECONDS ) );
-		update_option( self::SAMPLE_RATE_OPTION, max( 1, (int) ceil( $requests / self::SAMPLES_PER_DAY ) ), false );
+		update_option( self::SAMPLE_RATE_OPTION, max( 1, (int) ceil( $requests / SampleRate::PER_DAY ) ), false );
 		return true;
 	}
 

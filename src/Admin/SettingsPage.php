@@ -42,6 +42,7 @@ final class SettingsPage {
 		'bot_insight_load',
 		'bot_insight_last_closed_day',
 		'bot_insight_sample_rate',
+		'bot_insight_sample_rate_day',
 		'bot_insight_salt',
 	);
 

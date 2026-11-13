@@ -102,6 +102,7 @@ final class RestController {
 				'countries'        => $reports->unknownCountries( $period ),
 				'signals'          => Signals::evaluate( $reports, $period ),
 				'signal_breakdown' => $reports->signalsBreakdown( $period ),
+				'sample_days'      => $reports->sampleDays( $period ),
 				'overhead'         => $reports->overhead(),
 				'health'           => array(
 					// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_is_writable -- Plain permission check on our own buffer dir.

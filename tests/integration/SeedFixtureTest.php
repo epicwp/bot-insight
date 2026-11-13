@@ -48,7 +48,7 @@ final class SeedFixtureTest extends \WP_UnitTestCase {
 		$this->assertContains( '(other combinations)', array_column( $data['params'], 'params' ) );
 		$this->assertNotEmpty( $data['countries'] );
 		$this->assertNotEmpty( $data['signals'] );
-		$this->assertGreaterThan( 0, $data['signal_breakdown']['no_js'] );
+		$this->assertGreaterThan( 1000, $data['signal_breakdown']['no_js'] );
 		$this->assertGreaterThan( 0, $data['overhead']['p95_us'] );
 	}
 

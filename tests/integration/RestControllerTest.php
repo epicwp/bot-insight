@@ -53,7 +53,7 @@ final class RestControllerTest extends \WP_UnitTestCase {
 		$data = $response->get_data();
 
 		$this->assertSame(
-			array( 'period', 'totals', 'per_day', 'visitors', 'params', 'countries', 'signals', 'signal_breakdown', 'overhead', 'health', 'notes' ),
+			array( 'period', 'totals', 'per_day', 'visitors', 'params', 'countries', 'signals', 'signal_breakdown', 'sample_days', 'overhead', 'health', 'notes' ),
 			array_keys( $data )
 		);
 		$this->assertSame( '7d', $data['period']['key'] );

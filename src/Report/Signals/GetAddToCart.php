@@ -37,17 +37,28 @@ final class GetAddToCart implements Signal {
 		if ( $requests <= 0 ) {
 			return null;
 		}
-		return array(
-			'id'       => $this->id(),
-			'severity' => 'notice',
-			'title'    => sprintf(
+		$days = $r->sampleDays( $p );
+		if ( $days > 0 ) {
+			$title = sprintf(
+				/* translators: 1: estimated number of requests, 2: number of days */
+				__( 'About %1$s GET requests with add-to-cart came from bots and suspected automated clients in the last %2$s days.', 'bot-insight' ),
+				number_format_i18n( $requests ),
+				number_format_i18n( $days )
+			);
+		} else {
+			$title = sprintf(
 				/* translators: %s: estimated number of requests */
 				__( 'About %s GET requests with add-to-cart came from bots and suspected automated clients.', 'bot-insight' ),
 				number_format_i18n( $requests )
-			),
+			);
+		}
+		return array(
+			'id'       => $this->id(),
+			'severity' => 'notice',
+			'title'    => $title,
 			'facts'    => array(
 				'requests'    => $requests,
-				'sample_rate' => $r->sampleRateInEffect(),
+				'sample_days' => $days,
 			),
 		);
 	}

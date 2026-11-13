@@ -21,7 +21,7 @@ final class Schema {
 	/**
 	 * Version of the table definitions. Bump it when a definition changes.
 	 */
-	public const DB_VERSION = 1;
+	public const DB_VERSION = 2;
 
 	/**
 	 * Option that holds the installed schema version.
@@ -49,7 +49,11 @@ final class Schema {
 		global $wpdb;
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 
+		$from = (int) get_option( self::VERSION_OPTION, 0 );
 		dbDelta( self::ddl( self::tables(), $wpdb->get_charset_collate() ) );
+		if ( $from > 0 && $from < 2 ) {
+			self::weighV1Samples();
+		}
 
 		self::seedOptions();
 		if ( false === get_option( self::VERSION_OPTION ) ) {
@@ -57,6 +61,22 @@ final class Schema {
 		} else {
 			update_option( self::VERSION_OPTION, self::DB_VERSION );
 		}
+	}
+
+	/**
+	 * Version 2 added `weight` to the sample table. Rows from version 1 get the rate that the
+	 * reports multiplied them by until then: the fixed setting, else the stored daily rate.
+	 */
+	private static function weighV1Samples(): void {
+		global $wpdb;
+		$settings = get_option( 'bot_insight_settings', array() );
+		if ( is_array( $settings ) && isset( $settings['sample_rate'] ) && is_int( $settings['sample_rate'] ) ) {
+			$rate = $settings['sample_rate'];
+		} else {
+			$rate = (int) get_option( 'bot_insight_sample_rate', 1 );
+		}
+		$table = self::tables()['sample'];
+		$wpdb->query( $wpdb->prepare( "UPDATE {$table} SET weight = %d", max( 1, min( 65535, $rate ) ) ) ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery -- One-off upgrade of the plugin's own table; name from tables().
 	}
 
 	/**
@@ -183,6 +203,7 @@ final class Schema {
   verified tinyint(3) unsigned NOT NULL DEFAULT 0,
   signals smallint(5) unsigned NOT NULL DEFAULT 0,
   self_us int(10) unsigned NOT NULL DEFAULT 0,
+  weight smallint(5) unsigned NOT NULL DEFAULT 1,
   PRIMARY KEY  (id),
   KEY ts (ts)
 ) ENGINE=InnoDB $collate;",

@@ -164,6 +164,7 @@ final class Folder {
 		'verified'         => array( '%d', 255 ),
 		'signals'          => array( '%d', 65535 ),
 		'self_us'          => array( '%d', 4294967295 ),
+		'weight'           => array( '%d', SampleRate::MAX ),
 	);
 
 	/**
@@ -235,6 +236,13 @@ final class Folder {
 	 * @var bool
 	 */
 	private $over = false;
+
+	/**
+	 * Sample rate of the current run (1 in N).
+	 *
+	 * @var int
+	 */
+	private $rate = 1;
 
 	/**
 	 * Errors of the current run.
@@ -388,7 +396,8 @@ final class Folder {
 	 * @throws \Throwable On the first failure that is not quarantined; it ends the run.
 	 */
 	private function work( int $now, array &$stats ): void {
-		$dir = $this->buffer->dir();
+		$dir        = $this->buffer->dir();
+		$this->rate = $this->sampleRate( $now );
 		$this->purgeQuarantine( $dir, $now );
 		// Files a crashed run had claimed first, then the new ones; both oldest first.
 		$work    = array_merge( self::glob( $dir . '/' . self::WORK_PREFIX . 'buffer-*.php' ), $this->buffer->foldable( $now ) );
@@ -778,7 +787,7 @@ final class Folder {
 	 * @return array<int, array<int, mixed>> Values in SAMPLE_COLUMNS order.
 	 */
 	private function sampleRows( array $rows ): array {
-		$rate = $this->sampleRate();
+		$rate = $this->rate;
 		$out  = array();
 		foreach ( $rows as $row ) {
 			if ( 1 !== random_int( 1, $rate ) ) {
@@ -822,6 +831,7 @@ final class Folder {
 				'verified'         => $row['verified'],
 				'signals'          => $row['signals'],
 				'self_us'          => $row['self'],
+				'weight'           => $rate,
 			);
 			$values = array();
 			foreach ( self::SAMPLE_COLUMNS as $col => $spec ) {
@@ -1003,16 +1013,42 @@ final class Folder {
 	}
 
 	/**
-	 * Sampling rate: an integer `sample_rate` setting wins, else option `bot_insight_sample_rate`.
+	 * Sample rate of a run. An integer `sample_rate` setting wins. Otherwise the day's start rate
+	 * (option `bot_insight_sample_rate`, set by the daily job) is raised when today's folded
+	 * requests are on course for more than SampleRate::PER_DAY sample rows; the rate used is
+	 * kept for the day, so it never drops within a day.
 	 *
+	 * @param int $now Unix time.
 	 * @return int At least 1.
+	 * @throws \RuntimeException When today's requests cannot be read.
 	 */
-	private function sampleRate(): int {
+	private function sampleRate( int $now ): int {
 		$settings = get_option( 'bot_insight_settings', array() );
 		if ( is_array( $settings ) && isset( $settings['sample_rate'] ) && is_int( $settings['sample_rate'] ) ) {
-			return max( 1, $settings['sample_rate'] );
+			return max( 1, min( SampleRate::MAX, $settings['sample_rate'] ) );
 		}
-		return max( 1, (int) get_option( 'bot_insight_sample_rate', 1 ) );
+		$start    = max( 1, (int) get_option( 'bot_insight_sample_rate', 1 ) );
+		$day      = $now - $now % 86400;
+		$ymd      = gmdate( 'Ymd', $day );
+		$stored   = get_option( SampleRate::DAY_OPTION, array() );
+		$day_rate = is_array( $stored ) && ( $stored['day'] ?? '' ) === $ymd ? (int) ( $stored['rate'] ?? 0 ) : 0;
+		$table    = Schema::tables()['hourly'];
+		$requests = (int) $this->wpdb->get_var( $this->wpdb->prepare( "SELECT COALESCE(SUM(requests), 0) FROM {$table} WHERE hour >= %d", $day ) );
+		if ( '' !== $this->wpdb->last_error ) {
+			throw new \RuntimeException( $this->wpdb->last_error );
+		}
+		$rate = SampleRate::adapt( $start, $day_rate, $requests, $now - $day );
+		if ( $rate !== $day_rate ) {
+			update_option(
+				SampleRate::DAY_OPTION,
+				array(
+					'day'  => $ymd,
+					'rate' => $rate,
+				),
+				false
+			);
+		}
+		return $rate;
 	}
 
 	/**

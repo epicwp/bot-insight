@@ -17,6 +17,7 @@ use BotInsight\Capture\Record;
 use BotInsight\Fold\Aggregator;
 use BotInsight\Fold\Enricher;
 use BotInsight\Fold\Folder;
+use BotInsight\Fold\SampleRate;
 use BotInsight\Fold\UniqueTracker;
 use BotInsight\Geo\GeoLookup;
 use BotInsight\Net\IpRanges;
@@ -600,6 +601,68 @@ final class FolderTest extends \WP_UnitTestCase {
 
 		$this->assertSame( '5', $this->scalar( 'SELECT SUM(requests) FROM %t' ) );
 		$this->assertSame( '0', $this->scalar( 'SELECT COUNT(*) FROM %s', 'sample' ) );
+	}
+
+	public function test_sample_rows_carry_the_rate_they_were_taken_at(): void {
+		$now  = $this->now();
+		$hour = $this->hourStart( $now ) - 7200;
+		$this->write( $hour, array( $this->rec( $hour + 1, '198.51.100.1' ), $this->rec( $hour + 2, '198.51.100.2' ) ) );
+
+		$this->folder()->run( $now );
+
+		$this->assertSame( '2', $this->scalar( 'SELECT COUNT(*) FROM %s WHERE weight = 1', 'sample' ) );
+	}
+
+	public function test_busy_day_raises_the_rate_within_the_day(): void {
+		global $wpdb;
+		$day = $this->now() - $this->now() % DAY_IN_SECONDS;
+		$now = $day + 43200;
+		// 250,000 requests in the first half of the day: on course for 1 in 100.
+		$wpdb->insert(
+			Schema::tables()['hourly'],
+			array(
+				'hour'     => $day + 3600,
+				'dims'     => md5( 'busy', true ),
+				'requests' => 250000,
+			)
+		);
+		$recs = array();
+		for ( $i = 0; $i < 300; $i++ ) {
+			$recs[] = $this->rec( $now - 600 + $i % 50, '198.51.100.1' );
+		}
+		$this->write( $now - 600, $recs );
+
+		$this->folder()->run( $now );
+
+		$this->assertSame(
+			array(
+				'day'  => gmdate( 'Ymd', $now ),
+				'rate' => 100,
+			),
+			get_option( 'bot_insight_sample_rate_day' )
+		);
+		$this->assertSame( '0', $this->scalar( 'SELECT COUNT(*) FROM %s WHERE weight <> 100', 'sample' ) );
+		// The start rate for the next day is still the daily job's.
+		$this->assertFalse( get_option( 'bot_insight_sample_rate' ) );
+	}
+
+	public function test_rate_never_drops_within_the_day(): void {
+		$now  = $this->now();
+		$hour = $this->hourStart( $now ) - 60;
+		update_option(
+			'bot_insight_sample_rate_day',
+			array(
+				'day'  => gmdate( 'Ymd', $now ),
+				'rate' => 100000000,
+			),
+			false
+		);
+		$this->write( $hour, array( $this->rec( $hour + 1, '198.51.100.1' ) ) );
+
+		$this->folder()->run( $now );
+
+		$this->assertSame( SampleRate::MAX, get_option( 'bot_insight_sample_rate_day' )['rate'] );
+		$this->assertSame( '0', $this->scalar( 'SELECT COUNT(*) FROM %s WHERE weight <> ' . SampleRate::MAX, 'sample' ) );
 	}
 
 	/**

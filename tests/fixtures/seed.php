@@ -102,7 +102,8 @@ if ( ! defined( 'ABSPATH' ) || ! class_exists( Schema::class ) ) {
 		return (string) array_key_first( $weights );
 	};
 
-	$rows = 0;
+	$rows      = 0;
+	$suspected = 0;
 	for ( $h = 168; $h >= 0; $h-- ) {
 		$hour  = $cur - $h * HOUR_IN_SECONDS;
 		$local = (int) gmdate( 'G', $hour + (int) ( get_option( 'gmt_offset' ) * HOUR_IN_SECONDS ) );
@@ -129,6 +130,9 @@ if ( ! defined( 'ABSPATH' ) || ! class_exists( Schema::class ) ) {
 				list( $param, $country, $n ) = $part;
 				if ( $n < 1 ) {
 					continue;
+				}
+				if ( 'suspected' === $class && $h < 168 ) {
+					$suspected += $n;
 				}
 				// Unidentified clients spread over many addresses; a named bot or a person rarely does.
 				$many_ips = in_array( $class, array( 'people', 'library', 'suspected' ), true ) || ( 'unknown_bot' === $class && '' === $bot_id );
@@ -205,14 +209,17 @@ if ( ! defined( 'ABSPATH' ) || ! class_exists( Schema::class ) ) {
 		}
 	}
 
-	// Sample rows: suspected requests with their signal bits, some GET add-to-cart.
+	// Sample rows: suspected requests with their signal bits, some GET add-to-cart. Each row weighs
+	// the rate it stands for, so the weights add up to the suspected requests of the hourly rows.
+	$samples = 400;
+	$weight  = max( 1, (int) round( $suspected / $samples ) );
 	$no_js   = array_search( 'no_js', Classifier::SIGNALS, true );
 	$no_sec  = array_search( 'no_sec_fetch', Classifier::SIGNALS, true );
 	$no_lang = array_search( 'no_accept_lang', Classifier::SIGNALS, true );
 	$cart    = array_search( 'get_add_to_cart', Classifier::SIGNALS, true );
 	$old_ua  = array_search( 'ua_outdated', Classifier::SIGNALS, true );
 	$prefix  = array( '192.0.2.0', '198.51.100.0', '203.0.113.0' );
-	for ( $i = 0; $i < 400; $i++ ) {
+	for ( $i = 0; $i < $samples; $i++ ) {
 		$ts      = $now - mt_rand( 60, 7 * DAY_IN_SECONDS - 60 );
 		$is_cart = mt_rand( 0, 9 ) < 6;
 		$signals = $no_js | ( mt_rand( 0, 9 ) < 7 ? $no_sec : 0 ) | ( mt_rand( 0, 9 ) < 4 ? $no_lang : 0 ) | ( $is_cart ? $cart : 0 ) | ( mt_rand( 0, 9 ) < 3 ? $old_ua : 0 );
@@ -235,6 +242,7 @@ if ( ! defined( 'ABSPATH' ) || ! class_exists( Schema::class ) ) {
 				'client_class'    => 'suspected',
 				'signals'         => $signals,
 				'session_created' => mt_rand( 0, 1 ),
+				'weight'          => $weight,
 			)
 		);
 	}

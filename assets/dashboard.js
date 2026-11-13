@@ -450,7 +450,7 @@
 					] ),
 				] )
 			);
-			content.appendChild( renderSignals( data.signals || [], data.signal_breakdown || {} ) );
+			content.appendChild( renderSignals( data.signals || [], data.signal_breakdown || {}, Number( data.sample_days ) || 0 ) );
 		}
 		content.appendChild( renderFooter( data.overhead || {} ) );
 	}
@@ -961,7 +961,7 @@
 		return section;
 	}
 
-	function renderSignals( signals, breakdown ) {
+	function renderSignals( signals, breakdown, sampleDays ) {
 		const section = card( __( 'Observations', 'bot-insight' ), 'bi-signals' );
 		if ( signals.length ) {
 			section.appendChild(
@@ -1003,7 +1003,19 @@
 				} )
 			)
 		);
-		section.appendChild( el( 'p', { className: 'bi-card__intro', text: __( 'Estimated requests, from sampled requests. One request can fire several signals.', 'bot-insight' ) } ) );
+		section.appendChild(
+			el( 'p', {
+				className: 'bi-card__intro',
+				text:
+					sampleDays > 0
+						? sprintf(
+								/* translators: %s: number of days */
+								__( 'Estimated requests in the last %s days, from sampled requests. One request can fire several signals.', 'bot-insight' ),
+								fmtInt( sampleDays )
+						  )
+						: __( 'Estimated requests, from sampled requests. One request can fire several signals.', 'bot-insight' ),
+			} )
+		);
 		return section;
 	}
 

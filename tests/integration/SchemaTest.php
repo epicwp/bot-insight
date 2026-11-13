@@ -176,6 +176,52 @@ final class SchemaTest extends \WP_UnitTestCase {
 		$this->assertTrue( $this->tableExists( Schema::tables()['hourly'] ) );
 	}
 
+	public function test_upgrade_from_v1_adds_sample_weights_at_the_rate_then_in_effect(): void {
+		global $wpdb;
+		Schema::install();
+		$table = Schema::tables()['sample'];
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery, WordPress.DB.SchemaChange
+		$wpdb->query( "ALTER TABLE $table DROP COLUMN weight" );
+		$this->assertNotContains( 'weight', $wpdb->get_col( "DESCRIBE $table" ) );
+		update_option( 'bot_insight_db_version', 1 );
+		update_option( 'bot_insight_sample_rate', 7, false );
+		$wpdb->insert(
+			$table,
+			array(
+				'ts'   => 1794528000,
+				'hour' => 1794528000,
+			)
+		);
+
+		Plugin::maybeUpgrade();
+
+		$this->assertSame( 2, Schema::DB_VERSION );
+		$this->assertSame( Schema::DB_VERSION, (int) get_option( 'bot_insight_db_version' ) );
+		$this->assertContains( 'weight', $wpdb->get_col( "DESCRIBE $table" ) );
+		$this->assertSame( array( '7' ), $wpdb->get_col( "SELECT weight FROM $table" ) );
+
+		// A later install leaves the weights alone.
+		update_option( 'bot_insight_sample_rate', 9, false );
+		Schema::install();
+		$this->assertSame( array( '7' ), $wpdb->get_col( "SELECT weight FROM $table" ) );
+		// phpcs:enable
+	}
+
+	public function test_fresh_install_samples_weigh_one_by_default(): void {
+		global $wpdb;
+		update_option( 'bot_insight_sample_rate', 7, false );
+		Schema::install();
+		$table = Schema::tables()['sample'];
+		$wpdb->insert(
+			$table,
+			array(
+				'ts'   => 1794528000,
+				'hour' => 1794528000,
+			)
+		);
+		$this->assertSame( array( '1' ), $wpdb->get_col( "SELECT weight FROM $table" ) ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.DirectDatabaseQuery
+	}
+
 	public function test_maybe_upgrade_does_nothing_when_current(): void {
 		global $wpdb;
 		update_option( 'bot_insight_db_version', Schema::DB_VERSION );

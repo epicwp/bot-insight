@@ -37,6 +37,11 @@ final class Reports {
 	public const OVERFLOW_STATUS = 'xxx';
 
 	/**
+	 * Days the sample table keeps its rows; sample-based figures cover at most this window.
+	 */
+	public const SAMPLE_DAYS = 14;
+
+	/**
 	 * Milliseconds per hour.
 	 */
 	private const MS_PER_HOUR = 3600000;
@@ -422,17 +427,18 @@ final class Reports {
 	}
 
 	/**
-	 * Estimated requests per signal among suspected clients: sample rows of class `suspected`
-	 * per signal bit, times the sample rate in effect now. Every signal slug is present.
+	 * Estimated requests per signal among suspected clients: the weights (the sample rate each row
+	 * was taken at) of sample rows of class `suspected`, per signal bit, within the sample window.
+	 * Every signal slug is present.
 	 *
 	 * @param Period $p Period.
 	 * @return array<string, int>
 	 */
 	public function signalsBreakdown( Period $p ): array {
 		$rows   = $this->rows(
-			"SELECT signals, COUNT(*) AS n FROM {$this->t['sample']}
+			"SELECT signals, SUM(weight) AS n FROM {$this->t['sample']}
 			WHERE ts >= %d AND ts < %d AND client_class = %s GROUP BY signals",
-			array( $p->start, $p->end, 'suspected' )
+			array( $this->sampleStart( $p ), $p->end, 'suspected' )
 		);
 		$counts = array_fill_keys( array_values( Classifier::SIGNALS ), 0 );
 		foreach ( $rows as $row ) {
@@ -442,11 +448,26 @@ final class Reports {
 				}
 			}
 		}
-		$rate = $this->sampleRateInEffect();
-		foreach ( $counts as $slug => $n ) {
-			$counts[ $slug ] = (int) round( $n * $rate );
-		}
 		return $counts;
+	}
+
+	/**
+	 * Days that sample-based figures cover when the period is longer than the sample window, else 0.
+	 *
+	 * @param Period $p Period.
+	 */
+	public function sampleDays( Period $p ): int {
+		return $this->sampleStart( $p ) > $p->start ? self::SAMPLE_DAYS : 0;
+	}
+
+	/**
+	 * Start of the sample window for a period: the period start, or SAMPLE_DAYS before the
+	 * period's last hour when that is later.
+	 *
+	 * @param Period $p Period.
+	 */
+	private function sampleStart( Period $p ): int {
+		return max( $p->start, $p->end - HOUR_IN_SECONDS - self::SAMPLE_DAYS * DAY_IN_SECONDS );
 	}
 
 	/**
@@ -601,27 +622,27 @@ final class Reports {
 	}
 
 	/**
-	 * Estimated GET requests with an `add-to-cart` parameter from every class except people:
-	 * sample rows times the sample rate in effect now. Only the sample table knows the method.
+	 * Estimated GET requests with an `add-to-cart` parameter from every class except people: the
+	 * weights of the matching sample rows within the sample window (see sampleDays()). Only the
+	 * sample table knows the method.
 	 *
 	 * @param Period $p Period.
 	 */
 	public function getAddToCartRequests( Period $p ): int {
-		$n = $this->wpdb->get_var(
+		return (int) $this->wpdb->get_var(
 			$this->wpdb->prepare(
-				"SELECT COUNT(*) FROM {$this->t['sample']} s
+				"SELECT COALESCE(SUM(s.weight), 0) FROM {$this->t['sample']} s
 				JOIN {$this->t['dict']} d ON d.id = s.param_sig_id AND d.type = %s
 				WHERE s.ts >= %d AND s.ts < %d AND s.method = %s AND s.client_class <> %s
 				AND FIND_IN_SET(%s, d.value) > 0",
 				'param_sig',
-				$p->start,
+				$this->sampleStart( $p ),
 				$p->end,
 				'GET',
 				'people',
 				'add-to-cart'
 			)
 		);
-		return (int) round( (int) $n * $this->sampleRateInEffect() );
 	}
 
 	/**
