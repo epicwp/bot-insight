@@ -27,7 +27,10 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
       - name: Check out the branch that CI ran on
-        run: git checkout -B "${{ github.event.workflow_run.head_branch }}" "${{ github.event.workflow_run.head_sha }}"
+        env:
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: git checkout -B "$HEAD_BRANCH" "$HEAD_SHA"
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '7.4'
