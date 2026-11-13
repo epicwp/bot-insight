@@ -44,8 +44,10 @@ final class SaltTest extends TestCase {
 		$a = $this->salt()->forDay( '20261113' );
 		$this->assertSame(
 			array(
-				'day'  => '20261113',
-				'salt' => $a,
+				'day'       => '20261113',
+				'salt'      => $a,
+				'prev_day'  => '',
+				'prev_salt' => '',
 			),
 			$this->options['bot_insight_salt']
 		);
@@ -59,15 +61,54 @@ final class SaltTest extends TestCase {
 		$this->assertSame( '20261114', $this->options['bot_insight_salt']['day'] );
 	}
 
-	public function test_previous_day_is_not_retrievable_and_not_stored(): void {
+	public function test_yesterday_keeps_its_salt_until_the_day_is_closed(): void {
 		$salt = $this->salt();
 		$a    = $salt->forDay( '20261113' );
 		$b    = $salt->forDay( '20261114' );
-		$old  = $salt->forDay( '20261113' );
+		// Late buffer files of yesterday hash with yesterday's salt, every time.
+		$this->assertSame( $a, $salt->forDay( '20261113' ) );
+		$this->assertSame( $a, $this->salt()->forDay( '20261113' ) );
+		$this->assertSame( $b, $salt->forDay( '20261114' ) );
+
+		$salt->closeDay( '20261113' );
+
+		$old = $salt->forDay( '20261113' );
 		$this->assertNotSame( $a, $old );
 		$this->assertNotSame( $b, $old );
-		$this->assertMatchesRegularExpression( '/^[0-9a-f]{64}$/', $old );
+		$this->assertSame( '', $this->options['bot_insight_salt']['prev_salt'] );
 		$this->assertSame( $b, $salt->forDay( '20261114' ) );
+	}
+
+	public function test_closing_an_older_day_keeps_yesterdays_salt(): void {
+		$salt = $this->salt();
+		$a    = $salt->forDay( '20261113' );
+		$salt->forDay( '20261114' );
+		$salt->closeDay( '20261112' );
+		$this->assertSame( $a, $salt->forDay( '20261113' ) );
+	}
+
+	public function test_only_yesterdays_salt_is_kept(): void {
+		$salt = $this->salt();
+		$a    = $salt->forDay( '20261111' );
+		$salt->forDay( '20261114' );
+		// Not the day before: its salt is not kept.
+		$this->assertSame( '', $this->options['bot_insight_salt']['prev_salt'] );
+		$this->assertNotSame( $a, $salt->forDay( '20261111' ) );
+
+		$b = $salt->forDay( '20261114' );
+		$salt->forDay( '20261115' );
+		$salt->forDay( '20261116' );
+		// Two rotations: the day before yesterday is gone.
+		$this->assertNotSame( $b, $salt->forDay( '20261114' ) );
+		$this->assertSame( '20261115', $this->options['bot_insight_salt']['prev_day'] );
+	}
+
+	public function test_older_day_gets_an_unstored_random_salt(): void {
+		$salt = $this->salt();
+		$salt->forDay( '20261114' );
+		$old = $salt->forDay( '20261101' );
+		$this->assertMatchesRegularExpression( '/^[0-9a-f]{64}$/', $old );
+		$this->assertNotSame( $old, $salt->forDay( '20261101' ) );
 		$this->assertSame( '20261114', $this->options['bot_insight_salt']['day'] );
 	}
 

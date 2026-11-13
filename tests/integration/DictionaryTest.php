@@ -57,6 +57,24 @@ final class DictionaryTest extends \WP_UnitTestCase {
 		$this->assertSame( $a, $this->dict()->id( 'bot', 'googlebot' ) );
 	}
 
+	public function test_known_value_is_read_without_an_insert(): void {
+		global $wpdb;
+		$id = ( new Dictionary( $wpdb ) )->id( 'param_sig', 'orderby' );
+
+		$queries = array();
+		$watch   = static function ( $sql ) use ( &$queries ) {
+			$queries[] = $sql;
+			return $sql;
+		};
+		add_filter( 'query', $watch );
+		$again = ( new Dictionary( $wpdb ) )->id( 'param_sig', 'orderby' );
+		remove_filter( 'query', $watch );
+
+		$this->assertSame( $id, $again );
+		$this->assertCount( 1, $queries );
+		$this->assertStringStartsWith( 'SELECT', ltrim( $queries[0] ) );
+	}
+
 	public function test_different_values_and_types_get_independent_ids(): void {
 		$d = $this->dict();
 		$a = $d->id( 'bot', 'x' );

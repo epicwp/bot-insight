@@ -858,7 +858,7 @@
 				fmtHours( row.php_hours ),
 				verifiedCell( row.verified ),
 				row.findability
-					? badge( __( 'Search or AI findability', 'bot-insight' ), 'good', __( 'This crawler feeds search results or AI answers that can send visitors to this site.', 'bot-insight' ) )
+					? badge( __( 'Findable', 'bot-insight' ), 'good', __( 'Matters for search and AI findability', 'bot-insight' ) )
 					: '',
 			];
 		} );

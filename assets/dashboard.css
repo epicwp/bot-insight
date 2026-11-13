@@ -427,6 +427,11 @@
 	white-space: nowrap;
 }
 
+/* Inside tables a badge may wrap rather than be cut off or widen the column. */
+.bot-insight table .bi-badge {
+	white-space: normal;
+}
+
 .bot-insight .bi-badge--good {
 	background: #edfaef;
 	color: #00450c;

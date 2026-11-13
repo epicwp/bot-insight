@@ -19,8 +19,8 @@ p95 delta: +6 ms and -2 ms (mean +2 ms). The run-to-run spread on the same setup
 the 0.5 ms budget, so `ab` on a laptop cannot confirm or reject the budget; it only shows that
 there is no large regression.
 
-The plugin's own measurement (`self_us`, wall time of collect, build and encode in the shutdown
-hook, without the file append), from the sample table after a fold:
+The plugin's own measurement at the time (`self_us`, then the wall time of collect, build and encode
+in the shutdown hook, without the file append), from the sample table after a fold:
 
 | Load                          | Requests | p50    | p95      | p99      |
 | ----------------------------- | -------- | ------ | -------- | -------- |
@@ -29,14 +29,25 @@ hook, without the file append), from the sample table after a fold:
 
 `overhead_p95_us` of the daily snapshot for that day: 2,225 µs (the `-c 4` load).
 
-Sequential requests are within the budget (p95 0.26 ms). Under four parallel requests, about 11%
+Sequential requests were within the budget (p95 0.26 ms). Under four parallel requests, about 11%
 of the requests took more than 1 ms in the recorder, with the same PHP and CPU time per request as
-the rest. That points to wall-clock preemption on a busy Docker host (28 containers running), but
-it is not proven. Check `overhead_p95_us` on the first two pilot shops before going wider; if it
-stays above 500 µs there, profile `Recorder::onShutdown()` under parallel load first.
+the rest, which pointed to wall-clock preemption on a busy Docker host. Since then `self_us` is the
+recorder's CPU time (user plus system, from `getrusage`), so preemption no longer counts, and the
+request path does less filesystem work (no directory check, one `fopen` per append, range lists
+parsed once per process).
 
 Budget: under 0.5 ms per request at p95 (design spec). Laptop numbers are noisy; the plugin's
-own measurement is the number to watch on pilot sites (dashboard footer, "Measured overhead").
+own measurement is the number to watch on pilot sites (dashboard footer, "Measured overhead",
+CPU time).
+
+## Go/no-go gate
+
+Before step 2 (about 10 sites): on **both** pilot shops of step 1, `overhead_p95_us` of the daily
+snapshot (CPU time) must be **at most 500 µs** on every full day after the first. Read it in the
+dashboard footer or with
+`wp db query "SELECT day, JSON_EXTRACT(data, '$.overhead_p95_us') FROM wp_botinsight_snapshot ORDER BY day DESC LIMIT 7"`
+(adjust the table prefix). If either shop is above 500 µs: no-go. Profile
+`Recorder::onShutdown()` on that shop first and repeat step 1 with the fix.
 
 ## Pilot steps
 
@@ -51,6 +62,10 @@ own measurement is the number to watch on pilot sites (dashboard footer, "Measur
 - [ ] Plugin activates without notices; Tools > Bot Insight opens; Site Health shows no new issues.
 - [ ] Within 10 minutes the dashboard shows data (the fold runs every five minutes through Action
       Scheduler or WP-Cron). If not: check that WP-Cron or a system cron runs.
+- [ ] Cron runs as the PHP user. A system cron (`wp cron event run --due-now` or a `curl` of
+      `wp-cron.php`) must run as the same user as PHP-FPM or the web server, or the fold cannot
+      read, rename and delete the buffer files the web requests wrote. Check that the buffer
+      directory empties after a fold and that the dashboard shows no fold error.
 - [ ] Request totals per hour are within about 10% of the access log's PHP requests for the same
       hour (exclude static files and requests served by the page cache or CDN).
 - [ ] The top bots match the access log's top user agents; a few Googlebot and Bingbot hits are
@@ -68,6 +83,11 @@ own measurement is the number to watch on pilot sites (dashboard footer, "Measur
       the host's outbound log if available).
 - [ ] Export (JSON) downloads and contains no full IPs and no query values.
 - [ ] Note anything odd per site: hosting, cache, CDN, PHP version, multilingual plugin.
+
+Known limitation: WordPress installed in a subdirectory (site address and WordPress address
+differ, or the site lives under `/shop/`) is not tested in v1. URL patterns and the loopback
+check use the home URL's host only; check the route and URL-pattern columns by hand on such a
+site before trusting them.
 
 ## Rollback
 

@@ -637,6 +637,50 @@ final class FolderTest extends \WP_UnitTestCase {
 		$this->assertSame( '0', $this->scalar( 'SELECT COUNT(*) FROM %s', 'sample' ) );
 	}
 
+	public function test_late_records_of_yesterday_hash_with_yesterdays_salt_until_it_closes(): void {
+		global $wpdb;
+		$now       = $this->now();
+		$yesterday = $now - $now % DAY_IN_SECONDS - 600;
+		$prev      = str_repeat( 'ab', 32 );
+		update_option(
+			'bot_insight_salt',
+			array(
+				'day'       => gmdate( 'Ymd', $now ),
+				'salt'      => str_repeat( 'cd', 32 ),
+				'prev_day'  => gmdate( 'Ymd', $yesterday ),
+				'prev_salt' => $prev,
+			),
+			false
+		);
+		$this->write( $yesterday, array( $this->rec( $yesterday, '198.51.100.1' ) ) );
+
+		$this->folder()->run( $now );
+
+		$hash = $wpdb->get_var( 'SELECT ip_hash FROM ' . Schema::tables()['sample'] ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		$this->assertSame( substr( hash_hmac( 'sha256', '198.51.100.1', $prev ), 0, 16 ), $hash );
+		// Yesterday is closed now, so its salt is gone.
+		$this->assertSame( gmdate( 'Ymd', $yesterday ), get_option( 'bot_insight_last_closed_day' ) );
+		$this->assertSame( '', get_option( 'bot_insight_salt' )['prev_salt'] );
+		$this->assertSame( str_repeat( 'cd', 32 ), get_option( 'bot_insight_salt' )['salt'] );
+	}
+
+	public function test_dns_cache_key_uses_todays_salt_and_hides_the_ip(): void {
+		$salt = new Salt(
+			static function () {
+				return array(
+					'day'  => '20261113',
+					'salt' => str_repeat( 'ef', 32 ),
+				);
+			},
+			static function (): bool {
+				return true;
+			}
+		);
+		$key = Folder::dnsCacheKey( $salt, '198.51.100.1', 1794564930 );
+		$this->assertSame( 'bot_insight_dns_' . substr( md5( str_repeat( 'ef', 32 ) . '198.51.100.1' ), 0, 20 ), $key );
+		$this->assertStringNotContainsString( '198.51.100.1', $key );
+	}
+
 	public function test_sample_rows_carry_the_rate_they_were_taken_at(): void {
 		$now  = $this->now();
 		$hour = $this->hourStart( $now ) - 7200;

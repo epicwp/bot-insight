@@ -225,6 +225,13 @@ final class Folder {
 	private $unlink;
 
 	/**
+	 * Daily IP salt; yesterday's salt is dropped once yesterday is closed.
+	 *
+	 * @var Salt
+	 */
+	private $salt;
+
+	/**
 	 * Wall-clock start of the run.
 	 *
 	 * @var float
@@ -269,8 +276,9 @@ final class Folder {
 	 * @param UniqueTracker $tracker    Unique tracker.
 	 * @param \wpdb         $wpdb       Database handle.
 	 * @param callable|null $unlink     Deletes a file (default: FileBuffer::delete()).
+	 * @param Salt|null     $salt       Daily IP salt (default: the options-backed one).
 	 */
-	public function __construct( FileBuffer $buffer, Enricher $enricher, Aggregator $aggregator, Dictionary $dict, UniqueTracker $tracker, \wpdb $wpdb, ?callable $unlink = null ) {
+	public function __construct( FileBuffer $buffer, Enricher $enricher, Aggregator $aggregator, Dictionary $dict, UniqueTracker $tracker, \wpdb $wpdb, ?callable $unlink = null, ?Salt $salt = null ) {
 		$this->buffer     = $buffer;
 		$this->enricher   = $enricher;
 		$this->aggregator = $aggregator;
@@ -278,6 +286,19 @@ final class Folder {
 		$this->tracker    = $tracker;
 		$this->wpdb       = $wpdb;
 		$this->unlink     = $unlink ?? array( $buffer, 'delete' );
+		$this->salt       = $salt ?? Salt::fromOptions();
+	}
+
+	/**
+	 * Transient name for a cached DNS verification result: a hash of today's salt and the IP, so
+	 * the IP cannot be read from it and the names change every day.
+	 *
+	 * @param Salt   $salt Daily IP salt.
+	 * @param string $ip   Client IP.
+	 * @param int    $now  Unix time.
+	 */
+	public static function dnsCacheKey( Salt $salt, string $ip, int $now ): string {
+		return 'bot_insight_dns_' . substr( md5( $salt->forDay( gmdate( 'Ymd', $now ) ) . $ip ), 0, 20 );
 	}
 
 	/**
@@ -299,8 +320,9 @@ final class Folder {
 		$bots = BotList::fromFile( $base . 'data/bots.json' );
 
 		$override  = get_option( 'bot_insight_ranges_override', '' );
-		$cache_key = static function ( string $ip ): string {
-			return 'bot_insight_dns_' . substr( md5( (string) get_option( 'bot_insight_secret', '' ) . $ip ), 0, 20 );
+		$salt      = Salt::fromOptions();
+		$cache_key = static function ( string $ip ) use ( $salt ): string {
+			return self::dnsCacheKey( $salt, $ip, time() );
 		};
 		$verifier  = new Verifier(
 			new IpRanges( $base . 'data/ranges', is_string( $override ) && '' !== $override ? $override : null ),
@@ -343,12 +365,7 @@ final class Folder {
 			new UaParser( $bots, $bots->currentMajors() ),
 			new Classifier(),
 			$verifier,
-			new Salt(
-				'get_option',
-				static function ( $name, $value ) {
-					return update_option( $name, $value, false );
-				}
-			),
+			$salt,
 			new GeoLookup(
 				'' !== $country && is_readable( $country ) ? $country : null,
 				'' !== $asn && is_readable( $asn ) ? $asn : null,
@@ -356,7 +373,7 @@ final class Folder {
 			)
 		);
 
-		return new self( new FileBuffer( $dir ), $enricher, new Aggregator(), new Dictionary( $wpdb ), new UniqueTracker( $dir ), $wpdb );
+		return new self( new FileBuffer( $dir ), $enricher, new Aggregator(), new Dictionary( $wpdb ), new UniqueTracker( $dir ), $wpdb, null, $salt );
 	}
 
 	/**
@@ -991,6 +1008,7 @@ final class Folder {
 				continue;
 			}
 			$this->closeDay( $start );
+			$this->salt->closeDay( gmdate( 'Ymd', $start ) );
 			if ( null === $last || $start > $last ) {
 				$last = $start;
 				update_option( self::LAST_DAY_OPTION, gmdate( 'Ymd', $start ), false );

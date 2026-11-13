@@ -8,6 +8,7 @@
 
 namespace BotInsight\Fold;
 
+use BotInsight\Plugin;
 use BotInsight\Site\Daily;
 
 /**
@@ -86,11 +87,16 @@ final class Scheduler {
 	}
 
 	/**
-	 * In admin requests, schedule what is missing (e.g. after a cron table reset).
+	 * In admin requests, recreate a missing buffer directory (e.g. after the uploads directory was
+	 * moved or cleaned) and schedule what is missing (e.g. after a cron table reset).
 	 */
 	public static function selfHeal(): void {
 		if ( ! is_admin() || wp_doing_ajax() ) {
 			return;
+		}
+		$dir = get_option( 'bot_insight_buffer_dir', '' );
+		if ( ! is_string( $dir ) || '' === $dir || ! is_dir( $dir ) ) {
+			Plugin::ensureBufferDir();
 		}
 		if ( self::hasActionScheduler() ) {
 			$missing = ! self::asScheduled( self::FOLD ) || ! self::asScheduled( self::DAILY );

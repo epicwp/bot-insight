@@ -51,7 +51,8 @@ final class Dictionary {
 	}
 
 	/**
-	 * Id for a value, created when missing.
+	 * Id for a value, created when missing. A known value costs one SELECT; INSERT IGNORE runs only
+	 * on a miss, so known values never burn auto-increment ids or take insert locks.
 	 *
 	 * @param string $type  One of bot, ua_family, param_sig, url_pattern, asn_org.
 	 * @param string $value Value, cut to 191 characters.
@@ -65,12 +66,15 @@ final class Dictionary {
 		}
 		$table = $this->table;
 		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.DirectDatabaseQuery
-		$this->wpdb->query(
-			$this->wpdb->prepare( "INSERT IGNORE INTO {$table} (type, value) VALUES (%s, %s)", $type, $value )
-		);
-		$id = (int) $this->wpdb->get_var(
-			$this->wpdb->prepare( "SELECT id FROM {$table} WHERE type = %s AND value = %s", $type, $value )
-		);
+		$select = $this->wpdb->prepare( "SELECT id FROM {$table} WHERE type = %s AND value = %s", $type, $value );
+		$id     = (int) $this->wpdb->get_var( $select );
+		if ( 0 === $id ) {
+			// Missing: insert (a concurrent insert of the same value is ignored), then read the id.
+			$this->wpdb->query(
+				$this->wpdb->prepare( "INSERT IGNORE INTO {$table} (type, value) VALUES (%s, %s)", $type, $value )
+			);
+			$id = (int) $this->wpdb->get_var( $select );
+		}
 		// phpcs:enable
 		$this->cache[ $type ][ $value ] = $id;
 		return $id;

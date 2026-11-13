@@ -8,6 +8,7 @@
 
 namespace BotInsight\Tests\Integration;
 
+use BotInsight\Buffer\FileBuffer;
 use BotInsight\Fold\Folder;
 use BotInsight\Fold\Scheduler;
 
@@ -73,8 +74,27 @@ final class SchedulerTest extends \WP_UnitTestCase {
 	}
 
 	public function test_self_heal_does_nothing_on_the_front_end(): void {
+		update_option( 'bot_insight_buffer_dir', '/nonexistent/bot-insight-gone' );
 		Scheduler::selfHeal();
 		$this->assertFalse( wp_next_scheduled( 'bot_insight_fold' ) );
+		$this->assertSame( '/nonexistent/bot-insight-gone', get_option( 'bot_insight_buffer_dir' ) );
+		delete_option( 'bot_insight_buffer_dir' );
+	}
+
+	public function test_self_heal_in_admin_recreates_a_missing_buffer_dir(): void {
+		foreach ( array( '', '/nonexistent/bot-insight-gone' ) as $stored ) {
+			update_option( 'bot_insight_buffer_dir', $stored );
+			set_current_screen( 'dashboard' );
+			Scheduler::selfHeal();
+			set_current_screen( 'front' );
+
+			$dir = get_option( 'bot_insight_buffer_dir' );
+			$this->assertNotSame( $stored, $dir );
+			$this->assertDirectoryExists( $dir );
+			$this->assertTrue( FileBuffer::isOwnDir( $dir ) );
+			( new FileBuffer( $dir ) )->removeDir();
+		}
+		delete_option( 'bot_insight_buffer_dir' );
 	}
 
 	public function test_hooks_are_wired(): void {
