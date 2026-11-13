@@ -5,3 +5,7 @@ node_modules/
 
 # Private notes (client field findings), never committed
 .private/
+
+# Local agent workspaces
+.superpowers/
+.worktrees/
