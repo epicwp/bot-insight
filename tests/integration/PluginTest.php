@@ -56,6 +56,8 @@ final class PluginTest extends \WP_UnitTestCase {
 		$text = $entries[0]['policy_text'];
 		$this->assertStringContainsString( 'bi_js', $text );
 		$this->assertStringContainsString( 'changes every day', $text );
+		$this->assertStringContainsString( 'never longer than 48 hours', $text );
+		$this->assertStringContainsString( 'deleted after 24 hours', $text );
 		$this->assertStringContainsString( 'never their values', $text );
 		$this->assertStringContainsString( 'kept for 400 days', $text );
 	}

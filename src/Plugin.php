@@ -13,6 +13,7 @@ use BotInsight\Admin\RestController;
 use BotInsight\Admin\SettingsPage;
 use BotInsight\Buffer\FileBuffer;
 use BotInsight\Capture\Recorder;
+use BotInsight\Fold\Folder;
 use BotInsight\Fold\Scheduler;
 use BotInsight\Site\Events;
 use BotInsight\Site\Langs;
@@ -65,7 +66,7 @@ final class Plugin {
 		}
 
 		register_activation_hook( $file, array( self::class, 'activate' ) );
-		register_deactivation_hook( $file, array( Scheduler::class, 'unregister' ) );
+		register_deactivation_hook( $file, array( self::class, 'deactivate' ) );
 		Scheduler::hooks();
 		Events::hooks();
 		RestController::hooks();
@@ -94,7 +95,7 @@ final class Plugin {
 		}
 		$paragraphs   = array(
 			__( 'This site uses the Bot Insight plugin to measure how much server time automated clients (bots) use. The data stays on this site\'s own server and is not shared with anyone.', 'bot-insight' ),
-			__( 'For each request that reaches the site, the visitor\'s IP address and browser user agent are held in a temporary file for a few minutes. They are then reduced to a hash of the IP address made with a random key that changes every day (so the hash cannot be traced back or linked across days), the network part of the address (the first three blocks of an IPv4 address, or the first 48 bits of an IPv6 address), and the browser or bot family. Of the visited address, only a URL pattern and the names of query parameters are stored, never their values. No names, email addresses, accounts or order details are stored.', 'bot-insight' ),
+			__( 'For each request that reaches the site, the visitor\'s IP address and browser user agent are held in a temporary file, normally for a few minutes and never longer than 48 hours, even if processing fails (a file that cannot be processed is set aside and deleted after 24 hours); deactivating the plugin deletes these files. After processing, the address and user agent are reduced to a hash of the IP address made with a random key that changes every day (so the hash cannot be traced back or linked across days), the network part of the address (the first three blocks of an IPv4 address, or the first 48 bits of an IPv6 address), and the browser or bot family. Of the visited address, only a URL pattern and the names of query parameters are stored, never their values. No names, email addresses, accounts or order details are stored.', 'bot-insight' ),
 			__( 'The plugin sets a cookie named bi_js with the value 1 when the browser runs JavaScript. It is strictly necessary to tell browsers apart from bots, contains no identifier and is deleted when the browser session ends.', 'bot-insight' ),
 		);
 		$retention    = (int) self::settings()['retention_days'];
@@ -136,6 +137,24 @@ final class Plugin {
 			Scheduler::register();
 		} else {
 			add_action( 'init', array( Scheduler::class, 'register' ), 20 );
+		}
+	}
+
+	/**
+	 * Deactivation: stop the jobs, fold what is waiting (at most 10 seconds, no DNS lookups), then
+	 * delete every file that still holds raw IP addresses or user agents. The tables stay.
+	 */
+	public static function deactivate(): void {
+		Scheduler::unregister();
+		try {
+			// One minute ahead, so the current minute's files are folded too.
+			Folder::create( 0 )->run( time() + 60, 10 );
+		} catch ( \Throwable $e ) {
+			unset( $e );
+		}
+		$dir = get_option( 'bot_insight_buffer_dir', '' );
+		if ( is_string( $dir ) && FileBuffer::isOwnDir( $dir ) ) {
+			( new FileBuffer( $dir ) )->purgeRaw();
 		}
 	}
 

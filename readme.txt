@@ -38,7 +38,7 @@ How a request is measured:
 
 Bot Insight is built to measure bots, not people, and stores no personal data.
 
-* No full IP addresses are stored. The visitor's IP address and user agent exist only in a buffer file for a few minutes, until the next fold. The fold keeps a hash of the IP address made with a random salt that changes every day (the old salt is discarded, so hashes of earlier days cannot be linked or reversed), and the network prefix (/24 for IPv4, /48 for IPv6).
+* No full IP addresses are stored. The visitor's IP address and user agent exist only in a buffer file until the next fold, normally a few minutes. If processing fails they are kept at most 48 hours: older buffer files are deleted unprocessed, and a file that cannot be processed is set aside and deleted after 24 hours. Deactivating the plugin processes what it can and deletes the remaining buffer files. The fold keeps a hash of the IP address made with a random salt that changes every day (the old salt is discarded, so hashes of earlier days cannot be linked or reversed), and the network prefix (/24 for IPv4, /48 for IPv6).
 * User agents are reduced to a client family, for example "Googlebot" or "Chrome", plus a flag for outdated browser versions.
 * URLs are reduced to a pattern. Of the query string only parameter names are kept, never their values.
 * No user accounts, email addresses, order details, form contents or other personal data are stored. Logged-in administrators are left out by default.

@@ -151,6 +151,25 @@ final class FileBuffer {
 	}
 
 	/**
+	 * Delete every file that can hold a raw IP address or user agent: buffer, working (`folding-`)
+	 * and quarantined files.
+	 *
+	 * @return int Files deleted.
+	 */
+	public function purgeRaw(): int {
+		$deleted = 0;
+		foreach ( array( 'buffer-*.php', 'folding-*.php', 'quarantine-*.php' ) as $pattern ) {
+			$files = @glob( $this->dir . '/' . $pattern );
+			foreach ( is_array( $files ) ? $files : array() as $file ) {
+				if ( ( @is_file( $file ) || @is_link( $file ) ) && @unlink( $file ) ) {
+					++$deleted;
+				}
+			}
+		}
+		return $deleted;
+	}
+
+	/**
 	 * Create the directory with an `index.php` and an `.htaccess` that deny web access.
 	 *
 	 * @return bool Whether the directory exists and is writable afterwards.

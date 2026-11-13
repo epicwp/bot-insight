@@ -336,19 +336,53 @@ final class FolderTest extends \WP_UnitTestCase {
 		$this->assertSame( '0', $this->scalar( 'SELECT COUNT(*) FROM %t' ) );
 	}
 
-	public function test_old_quarantined_files_are_purged(): void {
-		$now = $this->now();
-		$old = $this->dir . '/quarantine-buffer-202001010000-abc-1.php';
-		$new = $this->dir . '/quarantine-buffer-202001010001-abc-1.php';
+	public function test_quarantined_files_are_purged_after_a_day(): void {
+		$now    = $this->now();
+		$minute = gmdate( 'YmdHi', $now - 30 * HOUR_IN_SECONDS );
+		$old    = $this->dir . '/quarantine-buffer-' . $minute . '-abc-1.php';
+		$new    = $this->dir . '/quarantine-buffer-' . $minute . '-abc-2.php';
 		file_put_contents( $old, FileBuffer::HEADER ); // phpcs:ignore WordPress.WP.AlternativeFunctions
 		file_put_contents( $new, FileBuffer::HEADER ); // phpcs:ignore WordPress.WP.AlternativeFunctions
-		touch( $old, $now - 8 * DAY_IN_SECONDS );
-		touch( $new, $now - 6 * DAY_IN_SECONDS );
+		touch( $old, $now - 25 * HOUR_IN_SECONDS );
+		touch( $new, $now - 23 * HOUR_IN_SECONDS );
 
 		$this->folder()->run( $now );
 
 		$this->assertFileDoesNotExist( $old );
 		$this->assertFileExists( $new );
+	}
+
+	public function test_raw_files_older_than_48_hours_are_deleted_unfolded(): void {
+		$now   = $this->now();
+		$stale = $this->write( $now - 49 * HOUR_IN_SECONDS, array( $this->rec( $now - 49 * HOUR_IN_SECONDS, '198.51.100.1' ) ) );
+		$fresh = $this->write( $now - 47 * HOUR_IN_SECONDS, array( $this->rec( $now - 47 * HOUR_IN_SECONDS, '198.51.100.2' ) ) );
+		$claim = $this->dir . '/folding-buffer-' . gmdate( 'YmdHi', $now - 50 * HOUR_IN_SECONDS ) . '-abc-1.php';
+		$quar  = $this->dir . '/quarantine-buffer-' . gmdate( 'YmdHi', $now - 50 * HOUR_IN_SECONDS ) . '-abc-1.php';
+		file_put_contents( $claim, FileBuffer::HEADER ); // phpcs:ignore WordPress.WP.AlternativeFunctions
+		file_put_contents( $quar, FileBuffer::HEADER ); // phpcs:ignore WordPress.WP.AlternativeFunctions
+
+		$this->folder()->run( $now );
+
+		foreach ( array( $stale, $fresh, $claim, $quar ) as $file ) {
+			$this->assertFileDoesNotExist( $file );
+		}
+		$this->assertSame( '1', $this->scalar( 'SELECT SUM(requests) FROM %t' ) );
+		$this->assertStringContainsString( 'Deleted 3 buffer files older than 48 hours', get_option( 'bot_insight_fold_status' )['last_error'] );
+	}
+
+	public function test_deactivation_folds_what_it_can_and_removes_raw_files(): void {
+		$now = $this->now();
+		$this->write( $now, array( $this->rec( $now, '198.51.100.1' ) ) );
+		$quar = $this->dir . '/quarantine-buffer-' . gmdate( 'YmdHi', $now - 600 ) . '-abc-1.php';
+		file_put_contents( $quar, FileBuffer::HEADER ); // phpcs:ignore WordPress.WP.AlternativeFunctions
+		wp_schedule_event( $now + 60, 'hourly', 'bot_insight_fold' );
+
+		Plugin::deactivate();
+
+		$this->assertSame( '1', $this->scalar( 'SELECT SUM(requests) FROM %t' ) );
+		$this->assertSame( array(), glob( $this->dir . '/{buffer,folding,quarantine}-*', GLOB_BRACE ) );
+		$this->assertFileExists( $this->dir . '/index.php' );
+		$this->assertFalse( wp_next_scheduled( 'bot_insight_fold' ) );
 	}
 
 	public function test_names_of_files_that_are_gone_are_pruned(): void {

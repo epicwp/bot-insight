@@ -40,7 +40,9 @@ use BotInsight\Storage\Schema;
  * - The unique tracker is written after the commit; a crash there loses a few uniques of that
  *   file (never requests).
  * - A file that fails three runs in a row is renamed to `quarantine-<name>` and skipped; quarantined
- *   files are purged after seven days.
+ *   files are purged after a day.
+ * - Raw files (buffer, working and quarantined) whose minute is more than 48 hours old are deleted
+ *   unfolded at the start of a run, and the run records that in its error.
  *
  * The run lock is MySQL `GET_LOCK`, which the server releases when the connection dies.
  */
@@ -67,9 +69,15 @@ final class Folder {
 	private const MAX_FAILURES = 3;
 
 	/**
-	 * Days a quarantined file is kept.
+	 * Seconds a quarantined file is kept.
 	 */
-	private const QUARANTINE_DAYS = 7;
+	private const QUARANTINE_SECONDS = 86400;
+
+	/**
+	 * Age (by the minute in its name) after which a raw buffer file is deleted unfolded, so raw IP
+	 * addresses and user agents never stay on disk longer, whatever goes wrong.
+	 */
+	public const STALE_SECONDS = 172800;
 
 	/**
 	 * Rows per multi-row INSERT statement.
@@ -275,10 +283,12 @@ final class Folder {
 	/**
 	 * Production wiring. Build a new folder per run, so every run gets a fresh DNS budget.
 	 *
+	 * @param int $dns_budget Reverse DNS lookups allowed in the run; 0 verifies by ranges and
+	 *                        cached DNS results only.
 	 * @return self
 	 * @throws \RuntimeException When there is no buffer directory or the bot list is invalid.
 	 */
-	public static function create(): self {
+	public static function create( int $dns_budget = 50 ): self {
 		global $wpdb;
 		$dir = get_option( 'bot_insight_buffer_dir', '' );
 		if ( ! is_string( $dir ) || '' === $dir ) {
@@ -307,7 +317,7 @@ final class Folder {
 			static function ( string $ip, int $result ) use ( $cache_key ): void {
 				set_transient( $cache_key( $ip ), $result, DAY_IN_SECONDS );
 			},
-			50,
+			max( 0, $dns_budget ),
 			static function ( string $host ) {
 				$records = @dns_get_record( $host, DNS_AAAA ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- A failed lookup is an expected result.
 				if ( ! is_array( $records ) ) {
@@ -399,6 +409,7 @@ final class Folder {
 	private function work( int $now, array &$stats ): void {
 		$dir        = $this->buffer->dir();
 		$this->rate = $this->sampleRate( $now );
+		$this->purgeStale( $dir, $now );
 		$this->purgeQuarantine( $dir, $now );
 		// Files a crashed run had claimed first, then the new ones; both oldest first.
 		$work    = array_merge( self::glob( $dir . '/' . self::WORK_PREFIX . 'buffer-*.php' ), $this->buffer->foldable( $now ) );
@@ -607,7 +618,7 @@ final class Folder {
 	}
 
 	/**
-	 * Delete quarantined files older than QUARANTINE_DAYS.
+	 * Delete quarantined files older than QUARANTINE_SECONDS.
 	 *
 	 * @param string $dir Buffer directory.
 	 * @param int    $now Unix time.
@@ -615,9 +626,36 @@ final class Folder {
 	private function purgeQuarantine( string $dir, int $now ): void {
 		foreach ( self::glob( $dir . '/' . self::QUARANTINE_PREFIX . '*.php' ) as $file ) {
 			$mtime = @filemtime( $file ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- A vanished file is fine.
-			if ( false !== $mtime && $mtime < $now - self::QUARANTINE_DAYS * DAY_IN_SECONDS ) {
+			if ( false !== $mtime && $mtime < $now - self::QUARANTINE_SECONDS ) {
 				( $this->unlink )( $file );
 			}
+		}
+	}
+
+	/**
+	 * Delete raw files whose minute is more than STALE_SECONDS old, folded or not.
+	 *
+	 * @param string $dir Buffer directory.
+	 * @param int    $now Unix time.
+	 */
+	private function purgeStale( string $dir, int $now ): void {
+		$deleted = 0;
+		foreach ( array( 'buffer-*.php', self::WORK_PREFIX . 'buffer-*.php', self::QUARANTINE_PREFIX . 'buffer-*.php' ) as $pattern ) {
+			foreach ( self::glob( $dir . '/' . $pattern ) as $file ) {
+				$minute = self::minuteOf( $file );
+				if ( 0 === $minute || $minute >= $now - self::STALE_SECONDS ) {
+					continue;
+				}
+				( $this->unlink )( $file );
+				clearstatcache( true, $file );
+				if ( ! file_exists( $file ) ) {
+					++$deleted;
+					$this->clearFailure( basename( $file ) );
+				}
+			}
+		}
+		if ( $deleted > 0 ) {
+			$this->errors[] = sprintf( 'Deleted %d buffer files older than 48 hours without folding them.', $deleted );
 		}
 	}
 
@@ -1101,7 +1139,7 @@ final class Folder {
 	 * @param string $file Path.
 	 */
 	private static function minuteOf( string $file ): int {
-		if ( 1 === preg_match( '/^(?:' . self::WORK_PREFIX . ')?buffer-(\d{12})-/', basename( $file ), $m ) ) {
+		if ( 1 === preg_match( '/^(?:' . self::WORK_PREFIX . '|' . self::QUARANTINE_PREFIX . ')?buffer-(\d{12})-/', basename( $file ), $m ) ) {
 			$time = \DateTime::createFromFormat( '!YmdHi', $m[1], new \DateTimeZone( 'UTC' ) );
 			if ( false !== $time ) {
 				return $time->getTimestamp();
