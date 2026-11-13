@@ -27,7 +27,34 @@ final class GeoUpdaterTest extends \WP_UnitTestCase {
 	 */
 	private $missing = array();
 
+	/**
+	 * limit_response_size values seen.
+	 *
+	 * @var int[]
+	 */
+	private $limits = array();
+
 	private $dir = '';
+
+	/**
+	 * Gzip bytes the fake server returns; null means a valid gzip of the URL basename.
+	 *
+	 * @var string|null
+	 */
+	private $payload = null;
+
+	/**
+	 * Validator stub accepting everything.
+	 *
+	 * @return GeoUpdater
+	 */
+	private function updater(): GeoUpdater {
+		return new GeoUpdater(
+			static function (): bool {
+				return true;
+			}
+		);
+	}
 
 	public function set_up(): void {
 		parent::set_up();
@@ -84,7 +111,8 @@ final class GeoUpdaterTest extends \WP_UnitTestCase {
 				);
 			}
 		}
-		file_put_contents( $args['filename'], gzencode( 'MMDB:' . basename( $url ) ) );
+		file_put_contents( $args['filename'], null === $this->payload ? gzencode( 'MMDB:' . basename( $url ) ) : $this->payload );
+		$this->limits[] = $args['limit_response_size'] ?? 0;
 		return array(
 			'headers'  => array(),
 			'body'     => '',
@@ -106,7 +134,7 @@ final class GeoUpdaterTest extends \WP_UnitTestCase {
 
 	public function test_files_are_written_when_opted_in(): void {
 		$this->setOptIn( true );
-		$this->assertTrue( ( new GeoUpdater() )->run( 1794000000 ) ); // 2026-11-.
+		$this->assertTrue( $this->updater()->run( 1794000000 ) ); // 2026-11-.
 		$this->assertSame( 'MMDB:dbip-country-lite-2026-11.mmdb.gz', file_get_contents( GeoUpdater::countryPath() ) );
 		$this->assertSame( 'MMDB:dbip-asn-lite-2026-11.mmdb.gz', file_get_contents( GeoUpdater::asnPath() ) );
 		$this->assertFileDoesNotExist( GeoUpdater::countryPath() . '.tmp' );
@@ -117,7 +145,7 @@ final class GeoUpdaterTest extends \WP_UnitTestCase {
 	public function test_falls_back_to_previous_month_on_404(): void {
 		$this->setOptIn( true );
 		$this->missing = array( '2026-11' );
-		$this->assertTrue( ( new GeoUpdater() )->run( 1794000000 ) );
+		$this->assertTrue( $this->updater()->run( 1794000000 ) );
 		$this->assertSame( 'MMDB:dbip-country-lite-2026-10.mmdb.gz', file_get_contents( GeoUpdater::countryPath() ) );
 		$this->assertSame( 'MMDB:dbip-asn-lite-2026-10.mmdb.gz', file_get_contents( GeoUpdater::asnPath() ) );
 	}
@@ -125,7 +153,55 @@ final class GeoUpdaterTest extends \WP_UnitTestCase {
 	public function test_fails_when_both_months_are_missing(): void {
 		$this->setOptIn( true );
 		$this->missing = array( '2026-11', '2026-10' );
-		$this->assertFalse( ( new GeoUpdater() )->run( 1794000000 ) );
+		$this->assertFalse( $this->updater()->run( 1794000000 ) );
 		$this->assertFileDoesNotExist( GeoUpdater::countryPath() );
+	}
+
+	private function seedExisting(): void {
+		mkdir( $this->dir . '/geo' );
+		file_put_contents( GeoUpdater::countryPath(), 'GOOD' );
+		file_put_contents( GeoUpdater::asnPath(), 'GOOD' );
+	}
+
+	private function assertUntouched(): void {
+		$this->assertSame( 'GOOD', file_get_contents( GeoUpdater::countryPath() ) );
+		$this->assertSame( 'GOOD', file_get_contents( GeoUpdater::asnPath() ) );
+		$this->assertSame( array(), glob( $this->dir . '/geo/*.tmp' ) );
+	}
+
+	public function test_truncated_gzip_leaves_existing_file_untouched(): void {
+		$this->setOptIn( true );
+		$this->seedExisting();
+		$this->payload = substr( gzencode( str_repeat( 'abcdefgh', 50000 ) ), 0, 200 );
+		$this->assertFalse( $this->updater()->run( 1794000000 ) );
+		$this->assertUntouched();
+	}
+
+	public function test_non_mmdb_bytes_leave_existing_file_untouched(): void {
+		$this->setOptIn( true );
+		$this->seedExisting();
+		$this->payload = gzencode( 'this is not a database' );
+		$this->assertFalse( ( new GeoUpdater() )->run( 1794000000 ) );
+		$this->assertUntouched();
+	}
+
+	public function test_unpacked_size_ceiling_aborts(): void {
+		$this->setOptIn( true );
+		$this->seedExisting();
+		$this->payload = gzencode( str_repeat( 'a', 200000 ) );
+		$updater       = new GeoUpdater(
+			static function (): bool {
+				return true;
+			},
+			1000
+		);
+		$this->assertFalse( $updater->run( 1794000000 ) );
+		$this->assertUntouched();
+	}
+
+	public function test_download_size_limit_is_requested(): void {
+		$this->setOptIn( true );
+		$this->updater()->run( 1794000000 );
+		$this->assertSame( array( 104857600, 104857600 ), $this->limits );
 	}
 }

@@ -91,8 +91,8 @@ final class GeoLookup {
 		$org = '';
 		$rec = $this->read( $this->asn_db, $ip );
 		if ( is_array( $rec ) ) {
-			$asn = isset( $rec['autonomous_system_number'] ) ? (int) $rec['autonomous_system_number'] : 0;
-			$org = isset( $rec['autonomous_system_organization'] )
+			$asn = isset( $rec['autonomous_system_number'] ) && is_int( $rec['autonomous_system_number'] ) ? $rec['autonomous_system_number'] : 0;
+			$org = isset( $rec['autonomous_system_organization'] ) && is_string( $rec['autonomous_system_organization'] )
 				? $rec['autonomous_system_organization']
 				: '';
 		}

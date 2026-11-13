@@ -116,4 +116,17 @@ final class GeoLookupTest extends TestCase {
 			$this->assertSame( $org, $r['asn_org'] );
 		}
 	}
+
+	public function test_non_string_org_and_non_int_asn_are_coerced(): void {
+		$r = $this->make(
+			null,
+			array(
+				'autonomous_system_number'       => array( 1 ),
+				'autonomous_system_organization' => array( 'x' ),
+			)
+		)->lookup( '192.0.2.1', '' );
+		$this->assertSame( 0, $r['asn'] );
+		$this->assertSame( '', $r['asn_org'] );
+		$this->assertSame( 'unknown', $r['asn_type'] );
+	}
 }
