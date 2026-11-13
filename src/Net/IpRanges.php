@@ -11,8 +11,10 @@ namespace BotInsight\Net;
 /**
  * Answers "is this IP inside the published ranges of list X".
  *
- * Each list is a PHP file returning an array of CIDR strings, so opcache serves it and no
- * parsing happens at runtime. Lists are loaded lazily, once per list per request.
+ * Each list is a PHP file returning an array of CIDR strings, so opcache serves it. Lists are
+ * loaded lazily and parsed once per process into packed networks (static cache keyed by file),
+ * so a request that builds a new instance pays no `inet_pton` per range. `resetCache()` forgets
+ * the parsed lists after a refresh in the same process.
  *
  * An optional override directory (refreshed lists in the private uploads dir) wins per list when
  * its `_meta.php` date is newer than the bundled one and the list was fetched in that run.
@@ -41,11 +43,26 @@ final class IpRanges {
 	private $from_override = null;
 
 	/**
-	 * Loaded lists, keyed by list name.
+	 * Loaded lists of this instance, keyed by list name: packed networks with their prefix length,
+	 * grouped by address length (4 or 16).
 	 *
-	 * @var array<string,string[]>
+	 * @var array<string, array<int, list<array{0: string, 1: int}>>>
 	 */
 	private $loaded = array();
+
+	/**
+	 * Parsed lists of this process, keyed by file path.
+	 *
+	 * @var array<string, array<int, list<array{0: string, 1: int}>>>
+	 */
+	private static $parsed = array();
+
+	/**
+	 * Override decisions of this process, keyed by bundled and override directory.
+	 *
+	 * @var array<string, array<string, bool>>
+	 */
+	private static $overrides = array();
 
 	/**
 	 * Constructor.
@@ -82,34 +99,21 @@ final class IpRanges {
 		if ( 16 === strlen( $bin ) && "\0\0\0\0\0\0\0\0\0\0\xff\xff" === substr( $bin, 0, 12 ) ) {
 			$bin = substr( $bin, 12 );
 		}
-		$ranges = $this->load( $name );
-		if ( ! $ranges ) {
-			return false;
-		}
-		$length = strlen( $bin );
-		foreach ( $ranges as $cidr ) {
-			$slash = strpos( $cidr, '/' );
-			if ( false === $slash ) {
-				continue;
-			}
-			// Cheap family check before decoding the range.
-			if ( ( false !== strpos( $cidr, ':' ) ) !== ( 16 === $length ) ) {
-				continue;
-			}
-			$net = @inet_pton( substr( $cidr, 0, $slash ) ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- Bundled data, but never trust it to be clean.
-			if ( false === $net || strlen( $net ) !== $length ) {
-				continue;
-			}
-			$prefix = substr( $cidr, $slash + 1 );
-			if ( '' === $prefix || ! ctype_digit( $prefix ) || (int) $prefix > $length * 8 ) {
-				continue;
-			}
-			$bits = (int) $prefix;
-			if ( $this->prefix_matches( $bin, $net, $bits ) ) {
+		$ranges = $this->load( $name )[ strlen( $bin ) ] ?? array();
+		foreach ( $ranges as $range ) {
+			if ( $this->prefix_matches( $bin, $range[0], $range[1] ) ) {
 				return true;
 			}
 		}
 		return false;
+	}
+
+	/**
+	 * Forget the parsed lists and override decisions of this process (after a refresh).
+	 */
+	public static function resetCache(): void {
+		self::$parsed    = array();
+		self::$overrides = array();
 	}
 
 	/**
@@ -160,7 +164,7 @@ final class IpRanges {
 	 * Loads a list on first use.
 	 *
 	 * @param string $name List name.
-	 * @return string[]
+	 * @return array<int, list<array{0: string, 1: int}>>
 	 */
 	private function load( string $name ): array {
 		if ( isset( $this->loaded[ $name ] ) ) {
@@ -173,9 +177,12 @@ final class IpRanges {
 			if ( isset( $this->overrideLists()[ $name ] ) && is_file( $this->override . '/' . $name . '.php' ) ) {
 				$file = $this->override . '/' . $name . '.php';
 			}
-			if ( is_file( $file ) ) {
-				$data   = include $file;
-				$ranges = is_array( $data ) ? array_values( array_filter( $data, 'is_string' ) ) : array();
+			if ( isset( self::$parsed[ $file ] ) ) {
+				$ranges = self::$parsed[ $file ];
+			} elseif ( is_file( $file ) ) {
+				$data                  = include $file;
+				$ranges                = self::parse( is_array( $data ) ? $data : array() );
+				self::$parsed[ $file ] = $ranges;
 			}
 		}
 		$this->loaded[ $name ] = $ranges;
@@ -183,8 +190,39 @@ final class IpRanges {
 	}
 
 	/**
+	 * Pack CIDR strings into networks and prefix lengths, grouped by address length. Malformed
+	 * entries are skipped.
+	 *
+	 * @param array<mixed> $cidrs CIDR strings.
+	 * @return array<int, list<array{0: string, 1: int}>>
+	 */
+	private static function parse( array $cidrs ): array {
+		$out = array();
+		foreach ( $cidrs as $cidr ) {
+			if ( ! is_string( $cidr ) ) {
+				continue;
+			}
+			$slash = strpos( $cidr, '/' );
+			if ( false === $slash ) {
+				continue;
+			}
+			$net = @inet_pton( substr( $cidr, 0, $slash ) ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- Bundled data, but never trust it to be clean.
+			if ( false === $net ) {
+				continue;
+			}
+			$length = strlen( $net );
+			$prefix = substr( $cidr, $slash + 1 );
+			if ( '' === $prefix || ! ctype_digit( $prefix ) || (int) $prefix > $length * 8 ) {
+				continue;
+			}
+			$out[ $length ][] = array( $net, (int) $prefix );
+		}
+		return $out;
+	}
+
+	/**
 	 * Lists the override directory supplies: those fetched in its last run, when that run is newer
-	 * than the bundled lists. Worked out once per instance; empty without an override directory.
+	 * than the bundled lists. Worked out once per process; empty without an override directory.
 	 *
 	 * @return array<string, bool>
 	 */
@@ -192,12 +230,17 @@ final class IpRanges {
 		if ( null === $this->from_override ) {
 			$this->from_override = array();
 			if ( null !== $this->override ) {
-				$over = self::meta( $this->override );
-				if ( '' !== $over['fetched'] && strcmp( $over['fetched'], self::meta( $this->dir )['fetched'] ) > 0 ) {
-					foreach ( $over['ok'] as $name ) {
-						$this->from_override[ $name ] = true;
+				$key = $this->dir . "\0" . $this->override;
+				if ( ! isset( self::$overrides[ $key ] ) ) {
+					self::$overrides[ $key ] = array();
+					$over                    = self::meta( $this->override );
+					if ( '' !== $over['fetched'] && strcmp( $over['fetched'], self::meta( $this->dir )['fetched'] ) > 0 ) {
+						foreach ( $over['ok'] as $name ) {
+							self::$overrides[ $key ][ $name ] = true;
+						}
 					}
 				}
+				$this->from_override = self::$overrides[ $key ];
 			}
 		}
 		return $this->from_override;

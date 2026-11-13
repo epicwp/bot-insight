@@ -172,6 +172,8 @@ final class Plugin {
 		} else {
 			update_option( 'bot_insight_buffer_dir', $dir );
 		}
+		// Refreshed range lists lived in the old directory.
+		update_option( 'bot_insight_ranges_override', '', true );
 		return $dir;
 	}
 

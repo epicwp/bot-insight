@@ -71,11 +71,18 @@ final class FileBuffer {
 	 */
 	public function append( string $line, int $now ): bool {
 		try {
-			$file = $this->dir . '/buffer-' . gmdate( 'YmdHi', $now ) . '-' . self::suffix() . '.php';
-			if ( ! @is_file( $file ) ) {
+			// One process per file, so no lock: open for append, add the header to a new (empty) file.
+			$handle = @fopen( $this->dir . '/buffer-' . gmdate( 'YmdHi', $now ) . '-' . self::suffix() . '.php', 'ab' );
+			if ( false === $handle ) {
+				return false;
+			}
+			$stat = @fstat( $handle );
+			if ( is_array( $stat ) && 0 === $stat['size'] ) {
 				$line = self::HEADER . $line;
 			}
-			return false !== @file_put_contents( $file, $line, FILE_APPEND | LOCK_EX );
+			$written = @fwrite( $handle, $line );
+			@fclose( $handle );
+			return strlen( $line ) === $written;
 		} catch ( \Throwable $e ) {
 			return false;
 		}

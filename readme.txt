@@ -96,7 +96,7 @@ Yes. The plugin reads the visitor's IP address from the CDN's header only when t
 
 = How much overhead does it add? =
 
-The target is under 0.5 ms per request at the 95th percentile. Recording is one append to a buffer file at the end of the request; the heavier work (classification, verification, aggregation) runs every five minutes in the background. The dashboard shows the measured overhead of the plugin itself.
+The target is under 0.5 ms per request at the 95th percentile. Recording is one append to a buffer file at the end of the request; the heavier work (classification, verification, aggregation) runs every five minutes in the background. The dashboard shows the measured overhead of the plugin itself: the CPU time the recorder uses per request, at the 95th percentile.
 
 = Are the site's own cron and background jobs counted? =
 

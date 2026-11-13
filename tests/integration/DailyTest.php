@@ -450,6 +450,7 @@ final class DailyTest extends \WP_UnitTestCase {
 		( new Daily( $wpdb ) )->run( self::NOW );
 
 		$override = $this->dir . '/ranges';
+		$this->assertSame( $override, get_option( 'bot_insight_ranges_override' ) );
 		$this->assertNotEmpty( $this->urls );
 		$this->assertFileExists( $override . '/_meta.php' );
 		$this->assertSame( gmdate( 'Y-m-d' ), IpRanges::fetched( $override ) );

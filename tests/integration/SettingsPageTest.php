@@ -193,6 +193,7 @@ final class SettingsPageTest extends \WP_UnitTestCase {
 		}
 		$this->assertFalse( get_option( 'bot_insight_dns_x' ) );
 		$this->assertFalse( get_transient( 'bot_insight_dns_abc' ) );
+		$this->assertSame( '', get_option( 'bot_insight_ranges_override' ) );
 		$this->assertSame( 90, get_option( 'bot_insight_settings' )['retention_days'] );
 		$this->assertSame( $secret, get_option( 'bot_insight_secret' ) );
 	}
@@ -338,6 +339,7 @@ final class SettingsPageTest extends \WP_UnitTestCase {
 		}
 		file_put_contents( $this->dir . '/geo/db.mmdb', 'x' );
 		file_put_contents( $this->dir . '/ranges/google.php', 'x' );
+		update_option( 'bot_insight_ranges_override', $this->dir . '/ranges' );
 		foreach ( array( 'folded_files', 'fold_failures', 'fold_status', 'daily_status', 'load', 'last_closed_day', 'sample_rate', 'salt', 'dns_x' ) as $name ) {
 			update_option( 'bot_insight_' . $name, 'x' );
 		}

@@ -61,7 +61,8 @@ final class RecorderBenchTest extends TestCase {
 	}
 
 	public function test_build_encode_append_is_cheap(): void {
-		$client  = new ClientIp( new IpRanges( dirname( __DIR__, 2 ) . '/fixtures/ranges-cdn' ) );
+		$ranges  = dirname( __DIR__, 2 ) . '/fixtures/ranges-cdn';
+		$client  = new ClientIp( new IpRanges( $ranges ) );
 		$buffer  = new FileBuffer( $this->dir );
 		$server  = self::server();
 		$cookies = array(
@@ -98,15 +99,18 @@ final class RecorderBenchTest extends TestCase {
 		// Warm up autoloading and the range file.
 		$buffer->append( Record::encode( Recorder::buildRecord( $server, $cookies, $get, $ctx, $metrics, $client, $langs ) ), 1794564930 );
 
+		// As on a real request: a new range matcher and client resolver per record.
 		$start = hrtime( true );
+		$cpu   = Recorder::cpuMicros();
 		for ( $i = 0; $i < self::RUNS; $i++ ) {
-			$record = Recorder::buildRecord( $server, $cookies, $get, $ctx, $metrics, $client, $langs );
+			$record = Recorder::buildRecord( $server, $cookies, $get, $ctx, $metrics, new ClientIp( new IpRanges( $ranges ) ), $langs );
 			$line   = Record::withSelf( Record::encode( $record ), 42 );
 			$buffer->append( $line, 1794564930 );
 		}
 		$avg_ms = ( hrtime( true ) - $start ) / 1e6 / self::RUNS;
+		$cpu_ms = ( Recorder::cpuMicros() - $cpu ) / 1000 / self::RUNS;
 
-		fwrite( STDERR, sprintf( "\nbuild+encode+self+append avg: %.4f ms over %d runs\n", $avg_ms, self::RUNS ) );
+		fwrite( STDERR, sprintf( "\nbuild+encode+self+append avg: %.4f ms wall, %.4f ms CPU over %d runs\n", $avg_ms, $cpu_ms, self::RUNS ) );
 		$this->assertLessThan( 0.15, $avg_ms );
 		$this->assertSame( 'product_cat', $record['r'] );
 	}

@@ -289,7 +289,11 @@ final class Daily {
 		if ( ! ( new FileBuffer( $dir ) )->ensureDir() ) {
 			throw new \RuntimeException( 'Cannot create the ranges directory.' );
 		}
-		if ( ! $this->ranges->run( $dir ) ) {
+		$complete = $this->ranges->run( $dir );
+		// The recorder and the fold read refreshed lists only when this flag names their directory.
+		update_option( 'bot_insight_ranges_override', '' !== IpRanges::fetched( $dir ) ? $dir : '', true );
+		IpRanges::resetCache();
+		if ( ! $complete ) {
 			throw new \RuntimeException( 'Some range lists could not be refreshed.' );
 		}
 		return true;

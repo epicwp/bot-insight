@@ -321,6 +321,7 @@ final class SettingsPage {
 			foreach ( self::STATE_OPTIONS as $name ) {
 				delete_option( $name );
 			}
+			update_option( 'bot_insight_ranges_override', '', true );
 			self::deleteDnsTransients();
 		} finally {
 			$wpdb->query( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock ) );

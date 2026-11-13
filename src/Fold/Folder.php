@@ -288,11 +288,12 @@ final class Folder {
 		$base = dirname( __DIR__, 2 ) . '/'; // The plugin directory (BOT_INSIGHT_DIR).
 		$bots = BotList::fromFile( $base . 'data/bots.json' );
 
+		$override  = get_option( 'bot_insight_ranges_override', '' );
 		$cache_key = static function ( string $ip ): string {
 			return 'bot_insight_dns_' . substr( md5( (string) get_option( 'bot_insight_secret', '' ) . $ip ), 0, 20 );
 		};
 		$verifier  = new Verifier(
-			new IpRanges( $base . 'data/ranges', is_dir( $dir . '/ranges' ) ? $dir . '/ranges' : null ),
+			new IpRanges( $base . 'data/ranges', is_string( $override ) && '' !== $override ? $override : null ),
 			static function ( string $ip ) {
 				return @gethostbyaddr( $ip ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- A failed lookup is an expected result.
 			},

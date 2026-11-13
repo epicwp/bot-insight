@@ -1026,7 +1026,7 @@
 			us > 0 && days > 0
 				? sprintf(
 						/* translators: 1: milliseconds, 2: number of days */
-						_n( 'Measured overhead: %1$s ms per request (p95, last %2$s day).', 'Measured overhead: %1$s ms per request (p95, last %2$s days).', days, 'bot-insight' ),
+						_n( 'Measured overhead: %1$s ms CPU per request (p95, last %2$s day).', 'Measured overhead: %1$s ms CPU per request (p95, last %2$s days).', days, 'bot-insight' ),
 						fmtMs( us ),
 						fmtInt( days )
 				  )

@@ -90,9 +90,42 @@ final class RecorderTest extends \WP_UnitTestCase {
 
 	public function test_per_request_options_are_autoloaded(): void {
 		$all = wp_load_alloptions();
-		foreach ( array( 'bot_insight_settings', 'bot_insight_langs', 'bot_insight_buffer_dir' ) as $name ) {
+		foreach ( array( 'bot_insight_settings', 'bot_insight_langs', 'bot_insight_buffer_dir', 'bot_insight_ranges_override' ) as $name ) {
 			$this->assertArrayHasKey( $name, $all, $name );
 		}
+	}
+
+	public function test_refreshed_cloudflare_ranges_are_used_only_when_flagged(): void {
+		$override = $this->dir . '/ranges';
+		mkdir( $override );
+		file_put_contents( $override . '/cloudflare.php', '<?php return ' . var_export( array( '192.0.2.0/24' ), true ) . ';' ); // phpcs:ignore WordPress.WP.AlternativeFunctions, WordPress.PHP.DevelopmentFunctions
+		file_put_contents( $override . '/_meta.php', '<?php return ' . var_export( array( 'fetched' => '2099-01-01', 'ok' => array( 'cloudflare' => 1 ) ), true ) . ';' ); // phpcs:ignore WordPress.WP.AlternativeFunctions, WordPress.PHP.DevelopmentFunctions, WordPress.Arrays.ArrayDeclarationSpacing
+		$_SERVER['REMOTE_ADDR']           = '192.0.2.10';
+		$_SERVER['HTTP_CF_CONNECTING_IP'] = '203.0.113.7';
+		$this->go_to( home_url( '/' ) );
+
+		// The directory alone is not looked at.
+		Recorder::onShutdown();
+		update_option( 'bot_insight_ranges_override', $override );
+		Recorder::onShutdown();
+
+		$records = $this->records();
+		$this->assertCount( 2, $records );
+		$this->assertSame( '192.0.2.10', $records[0]['ip'] );
+		$this->assertSame( '203.0.113.7', $records[1]['ip'] );
+		$this->assertSame( 1, $records[1]['cdn'] );
+	}
+
+	public function test_record_self_is_cpu_microseconds(): void {
+		$this->go_to( home_url( '/' ) );
+
+		Recorder::onShutdown();
+
+		$records = $this->records();
+		$this->assertCount( 1, $records );
+		$this->assertIsInt( $records[0]['self'] );
+		$this->assertGreaterThanOrEqual( 0, $records[0]['self'] );
+		$this->assertLessThan( 1000000, $records[0]['self'] );
 	}
 
 	public function test_admin_excluded_by_default(): void {

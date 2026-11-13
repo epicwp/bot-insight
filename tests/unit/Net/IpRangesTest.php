@@ -175,6 +175,20 @@ final class IpRangesTest extends TestCase {
 		$this->assertSame( array( 'cloudflare', 'google' ), ( new IpRanges( $bundled, $override ) )->lists() );
 	}
 
+	public function test_parsed_lists_are_cached_per_process_until_reset(): void {
+		$dir = $this->rangeDir( '2026-11-01', array( 'google' => '192.0.2.0/24' ) );
+		$this->assertTrue( ( new IpRanges( $dir ) )->contains( '192.0.2.7', 'google' ) );
+
+		file_put_contents( "{$dir}/google.php", '<?php return ' . var_export( array( '198.51.100.0/24' ), true ) . ';' );
+		// A new instance in the same process reuses the parsed list.
+		$this->assertTrue( ( new IpRanges( $dir ) )->contains( '192.0.2.7', 'google' ) );
+
+		IpRanges::resetCache();
+		$fresh = new IpRanges( $dir );
+		$this->assertTrue( $fresh->contains( '198.51.100.7', 'google' ) );
+		$this->assertFalse( $fresh->contains( '192.0.2.7', 'google' ) );
+	}
+
 	public function test_fetched_reads_the_meta_date(): void {
 		$this->assertSame( '2026-11-10', IpRanges::fetched( $this->rangeDir( '2026-11-10', array() ) ) );
 		$this->assertSame( '', IpRanges::fetched( $this->rangeDir( null, array() ) ) );

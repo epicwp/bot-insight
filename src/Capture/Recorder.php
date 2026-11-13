@@ -139,6 +139,7 @@ final class Recorder {
 	public static function onShutdown(): void {
 		try {
 			$start = microtime( true );
+			$cpu   = self::cpuMicros();
 			if ( defined( 'WP_CLI' ) && WP_CLI ) {
 				return;
 			}
@@ -163,26 +164,28 @@ final class Recorder {
 			$metrics = array(
 				'ts'  => $now,
 				'ms'  => isset( $_SERVER['REQUEST_TIME_FLOAT'] ) ? ( $start - (float) $_SERVER['REQUEST_TIME_FLOAT'] ) * 1000 : 0.0,
-				'cpu' => Plugin::cpuStart() > 0 ? max( 0, self::cpuMicros() - Plugin::cpuStart() ) / 1000 : 0.0,
+				'cpu' => Plugin::cpuStart() > 0 ? max( 0, $cpu - Plugin::cpuStart() ) / 1000 : 0.0,
 				'mem' => (int) ( memory_get_peak_usage( true ) / 1024 ),
 				'dbq' => is_object( $wpdb ) && isset( $wpdb->num_queries ) ? (int) $wpdb->num_queries : 0,
 				'st'  => false === $status ? 200 : (int) $status,
 			) + self::$effects;
 
-			$record = self::buildRecord(
+			$override = get_option( 'bot_insight_ranges_override', '' );
+			$record   = self::buildRecord(
 				$_SERVER,
 				$_COOKIE,
 				$_GET, // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Only parameter names are kept.
 				WpContext::collect(),
 				$metrics,
-				new ClientIp( new IpRanges( dirname( __DIR__, 2 ) . '/data/ranges', is_dir( $dir . '/ranges' ) ? $dir . '/ranges' : null ) ),
+				new ClientIp( new IpRanges( dirname( __DIR__, 2 ) . '/data/ranges', is_string( $override ) && '' !== $override ? $override : null ) ),
 				self::langs()
 			);
 
 			$record['self'] = 0;
 			$line           = Record::encode( $record );
-			// `self` covers collect, build and encode; it excludes the file write.
-			$line = Record::withSelf( $line, (int) round( ( microtime( true ) - $start ) * 1e6 ) );
+			// `self` is the CPU time (user + system) of collect, build and encode, so a busy host that
+			// preempts the process does not inflate it; it excludes the file write.
+			$line = Record::withSelf( $line, $cpu > 0 ? max( 0, self::cpuMicros() - $cpu ) : 0 );
 
 			( new FileBuffer( $dir ) )->append( $line, $now );
 		} catch ( \Throwable $e ) {

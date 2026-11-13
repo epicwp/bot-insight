@@ -64,6 +64,18 @@ final class FileBufferTest extends TestCase {
 		);
 	}
 
+	public function test_empty_existing_file_gets_the_header_first(): void {
+		$buffer = new FileBuffer( $this->dir );
+		$this->assertTrue( $buffer->append( $this->line( self::NOW ), self::NOW ) );
+		$files = glob( $this->dir . '/buffer-*.php' );
+		$this->assertCount( 1, $files );
+		file_put_contents( $files[0], '' );
+
+		$this->assertTrue( $buffer->append( $this->line( self::NOW ), self::NOW ) );
+
+		$this->assertSame( FileBuffer::HEADER . $this->line( self::NOW ), file_get_contents( $files[0] ) );
+	}
+
 	public function test_next_minute_gets_a_new_file(): void {
 		$buffer = new FileBuffer( $this->dir );
 		$buffer->append( $this->line( 1 ), self::NOW );

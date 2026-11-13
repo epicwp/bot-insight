@@ -95,6 +95,8 @@ final class Schema {
 			true
 		);
 		add_option( 'bot_insight_buffer_dir', '', '', true );
+		// Directory of refreshed range lists, '' when none: spares the recorder a directory check.
+		add_option( 'bot_insight_ranges_override', '', '', true );
 	}
 
 	/**
