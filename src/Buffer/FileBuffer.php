@@ -54,6 +54,15 @@ final class FileBuffer {
 	}
 
 	/**
+	 * Buffer directory without a trailing slash.
+	 *
+	 * @return string
+	 */
+	public function dir(): string {
+		return $this->dir;
+	}
+
+	/**
 	 * Append one encoded line to this process's file for the minute of `$now`.
 	 *
 	 * @param string $line Encoded record, `\n` terminated.

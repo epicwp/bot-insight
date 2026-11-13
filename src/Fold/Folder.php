@@ -27,22 +27,49 @@ use BotInsight\Storage\Schema;
  * Reads the buffer files, enriches every record, upserts hourly rows, inserts sample rows and
  * closes hours and days for the unique counts. Runs every five minutes from cron, under a lock.
  *
- * Crash safety per file: the hourly upsert, the sample inserts and the file's name in option
- * `bot_insight_folded_files` are committed in one transaction. A file whose name is in that list
- * is deleted on sight without being folded again, so a crash between the commit and the file
- * delete can never double count. The unique tracker is written after the commit; a crash there
- * loses a few uniques of that file (never requests).
+ * Per file:
+ * - The file is first renamed to `folding-<name>` (outside the foldable glob, still `.php`), so a
+ *   late append to the old path goes to the renamed inode or a fresh file, never into a file that
+ *   is deleted after reading.
+ * - The hourly upsert, the sample inserts and the working name in option
+ *   `bot_insight_folded_files` commit in one transaction. Inside it the option row is read
+ *   `FOR UPDATE`; a name that is already listed (another run committed it) or a file that is gone
+ *   rolls back and skips the file. A listed file is deleted on sight without being folded again,
+ *   so a crash between the commit and the delete never double counts.
+ * - The name leaves the list only once the file is really gone.
+ * - The unique tracker is written after the commit; a crash there loses a few uniques of that
+ *   file (never requests).
+ * - A file that fails three runs in a row is renamed to `quarantine-<name>` and skipped; quarantined
+ *   files are purged after seven days.
+ *
+ * The run lock is MySQL `GET_LOCK`, which the server releases when the connection dies.
  */
 final class Folder {
 
-	public const LOCK_OPTION   = 'bot_insight_fold_lock';
-	public const FOLDED_OPTION = 'bot_insight_folded_files';
-	public const STATUS_OPTION = 'bot_insight_fold_status';
+	public const FOLDED_OPTION   = 'bot_insight_folded_files';
+	public const STATUS_OPTION   = 'bot_insight_fold_status';
+	public const FAILURES_OPTION = 'bot_insight_fold_failures';
+	public const LAST_DAY_OPTION = 'bot_insight_last_closed_day';
 
 	/**
-	 * A lock younger than this many seconds is respected.
+	 * Prefix of a buffer file that is being folded.
 	 */
-	private const LOCK_TTL = 240;
+	public const WORK_PREFIX = 'folding-';
+
+	/**
+	 * Prefix of a buffer file that failed too often.
+	 */
+	public const QUARANTINE_PREFIX = 'quarantine-';
+
+	/**
+	 * Failed runs after which a file is quarantined.
+	 */
+	private const MAX_FAILURES = 3;
+
+	/**
+	 * Days a quarantined file is kept.
+	 */
+	private const QUARANTINE_DAYS = 7;
 
 	/**
 	 * Rows per multi-row INSERT statement.
@@ -182,6 +209,41 @@ final class Folder {
 	private $wpdb;
 
 	/**
+	 * Deletes a file: fn( string $path ). Injectable for tests.
+	 *
+	 * @var callable
+	 */
+	private $unlink;
+
+	/**
+	 * Wall-clock start of the run.
+	 *
+	 * @var float
+	 */
+	private $started = 0.0;
+
+	/**
+	 * Time budget of the run in seconds.
+	 *
+	 * @var int
+	 */
+	private $budget = 20;
+
+	/**
+	 * Set when the budget ran out while a file was being read.
+	 *
+	 * @var bool
+	 */
+	private $over = false;
+
+	/**
+	 * Errors of the current run.
+	 *
+	 * @var string[]
+	 */
+	private $errors = array();
+
+	/**
 	 * Constructor.
 	 *
 	 * @param FileBuffer    $buffer     Buffer files.
@@ -190,14 +252,16 @@ final class Folder {
 	 * @param Dictionary    $dict       String dictionary.
 	 * @param UniqueTracker $tracker    Unique tracker.
 	 * @param \wpdb         $wpdb       Database handle.
+	 * @param callable|null $unlink     Deletes a file (default: FileBuffer::delete()).
 	 */
-	public function __construct( FileBuffer $buffer, Enricher $enricher, Aggregator $aggregator, Dictionary $dict, UniqueTracker $tracker, \wpdb $wpdb ) {
+	public function __construct( FileBuffer $buffer, Enricher $enricher, Aggregator $aggregator, Dictionary $dict, UniqueTracker $tracker, \wpdb $wpdb, ?callable $unlink = null ) {
 		$this->buffer     = $buffer;
 		$this->enricher   = $enricher;
 		$this->aggregator = $aggregator;
 		$this->dict       = $dict;
 		$this->tracker    = $tracker;
 		$this->wpdb       = $wpdb;
+		$this->unlink     = $unlink ?? array( $buffer, 'delete' );
 	}
 
 	/**
@@ -280,7 +344,8 @@ final class Folder {
 	 * Fold what is foldable. Never throws.
 	 *
 	 * @param int $now         Unix time.
-	 * @param int $max_seconds Stop starting new files after this many seconds of wall time.
+	 * @param int $max_seconds Stop starting new files after this many seconds of wall time. A
+	 *                         file that is started is always finished (atomicity).
 	 * @return array{files:int, records:int, skipped_lock:bool}
 	 */
 	public function run( int $now, int $max_seconds = 20 ): array {
@@ -289,51 +354,24 @@ final class Folder {
 			'records'      => 0,
 			'skipped_lock' => false,
 		);
-		if ( ! $this->lock( $now ) ) {
+		if ( ! $this->lock() ) {
 			$stats['skipped_lock'] = true;
 			return $stats;
 		}
 
-		$error = '';
+		$this->started = microtime( true );
+		$this->budget  = $max_seconds;
+		$this->over    = false;
+		$this->errors  = array();
 		try {
-			$started = microtime( true );
-			$files   = $this->buffer->foldable( $now );
-			$folded  = $this->foldedNames( $files );
-			$pending = null;
-
-			foreach ( $files as $file ) {
-				if ( microtime( true ) - $started >= $max_seconds ) {
-					$pending = self::minuteOf( $file );
-					break;
-				}
-				$name = basename( $file );
-				if ( in_array( $name, $folded, true ) ) {
-					// Committed by an earlier run that stopped before deleting the file.
-					$this->buffer->delete( $file );
-					$folded = array_values( array_diff( $folded, array( $name ) ) );
-					update_option( self::FOLDED_OPTION, $folded, false );
-					continue;
-				}
-				// A failure here ends the run: no hour or day is closed, the file stays for the next run.
-				$stats['records'] += $this->foldFile( $file, $folded );
-				++$stats['files'];
-				$folded = $this->readFolded();
-			}
-
-			// Close only what every remaining file is newer than.
-			$cutoff = (int) ( floor( $now / 60 ) * 60 ) - 60;
-			if ( null !== $pending ) {
-				$cutoff = min( $cutoff, $pending );
-			}
-			$this->closeHours( $cutoff );
-			$this->closeDays( $cutoff );
+			$this->work( $now, $stats );
 		} catch ( \Throwable $e ) {
-			$error = '' !== $e->getMessage() ? $e->getMessage() : get_class( $e );
+			$this->errors[] = '' !== $e->getMessage() ? $e->getMessage() : get_class( $e );
 		} finally {
 			$this->unlock();
 		}
 
-		$this->saveStatus( $now, $error, $stats );
+		$this->saveStatus( $now, implode( ' | ', $this->errors ), $stats );
 		try {
 			do_action( 'bot_insight_folded', $stats );
 		} catch ( \Throwable $e ) {
@@ -343,24 +381,96 @@ final class Folder {
 	}
 
 	/**
-	 * Fold one file. Its records are committed with its name in the folded list, then counted for
-	 * uniques, then the file and its name are removed.
+	 * Fold the files and close what is complete.
 	 *
-	 * @param string   $file   Absolute path.
-	 * @param string[] $folded Current folded list.
-	 * @return int Records folded.
+	 * @param int                                              $now   Unix time.
+	 * @param array{files:int, records:int, skipped_lock:bool} $stats Run stats, updated.
+	 * @throws \Throwable On the first failure that is not quarantined; it ends the run.
+	 */
+	private function work( int $now, array &$stats ): void {
+		$dir = $this->buffer->dir();
+		$this->purgeQuarantine( $dir, $now );
+		// Files a crashed run had claimed first, then the new ones; both oldest first.
+		$work    = array_merge( self::glob( $dir . '/' . self::WORK_PREFIX . 'buffer-*.php' ), $this->buffer->foldable( $now ) );
+		$folded  = $this->foldedNames( $dir );
+		$pending = null;
+
+		foreach ( $work as $file ) {
+			if ( $this->overBudget() ) {
+				$pending = self::earliest( $pending, self::minuteOf( $file ) );
+				break;
+			}
+			$working = $this->claim( $file );
+			if ( null === $working ) {
+				// An older working copy of the same name still waits; take this one next run.
+				$pending = self::earliest( $pending, self::minuteOf( $file ) );
+				continue;
+			}
+			$name = basename( $working );
+			if ( in_array( $name, $folded, true ) ) {
+				// Committed by an earlier run that stopped before deleting the file.
+				$this->finish( $working );
+				$folded = $this->readFolded();
+				continue;
+			}
+			try {
+				$count = $this->foldFile( $working );
+			} catch ( \Throwable $e ) {
+				if ( $this->recordFailure( $working, $e ) ) {
+					continue;
+				}
+				// A failure ends the run: no hour or day is closed, the file stays for the next run.
+				throw $e;
+			}
+			if ( null !== $count ) {
+				$stats['records'] += $count;
+				++$stats['files'];
+			}
+			$this->clearFailure( $name );
+			$folded = $this->readFolded();
+		}
+
+		// Close only what every remaining file is newer than.
+		$cutoff = (int) ( floor( $now / 60 ) * 60 ) - 60;
+		if ( null !== $pending ) {
+			$cutoff = min( $cutoff, $pending );
+		}
+		$this->closeHours( $cutoff );
+		$this->closeDays( $cutoff );
+	}
+
+	/**
+	 * Name of the MySQL user lock of the fold: unique per database and table prefix, at most 64
+	 * characters (GET_LOCK names are server-wide).
+	 *
+	 * @param \wpdb $wpdb Database handle.
+	 */
+	public static function lockName( \wpdb $wpdb ): string {
+		return 'bot_insight_fold_' . md5( (string) $wpdb->get_var( 'SELECT DATABASE()' ) . '|' . $wpdb->prefix );
+	}
+
+	/**
+	 * Fold one claimed file. Its records are committed with its name in the folded list, then
+	 * counted for uniques, then the file and its name are removed.
+	 *
+	 * @param string $working Absolute path of the claimed (`folding-`) file.
+	 * @return int|null Records folded, or null when another run already committed the file.
 	 * @throws \RuntimeException When the file cannot be read or a query fails.
 	 * @throws \Throwable        Anything else, after the transaction was rolled back.
 	 */
-	private function foldFile( string $file, array $folded ): int {
-		if ( ! is_readable( $file ) ) {
-			throw new \RuntimeException( 'Cannot read buffer file ' . basename( $file ) );
+	private function foldFile( string $working ): ?int {
+		if ( ! is_readable( $working ) ) {
+			throw new \RuntimeException( 'Cannot read buffer file ' . basename( $working ) );
 		}
 		$rows = array();
-		foreach ( $this->buffer->read( $file ) as $record ) {
+		foreach ( $this->buffer->read( $working ) as $record ) {
 			$rows[] = $this->enricher->enrich( $record );
+			if ( ! $this->over && microtime( true ) - $this->started >= $this->budget ) {
+				// Finish this file (it must commit as a whole), but start no other.
+				$this->over = true;
+			}
 		}
-		$name = basename( $file );
+		$name = basename( $working );
 
 		$hours = array();
 		foreach ( $rows as $row ) {
@@ -368,13 +478,19 @@ final class Folder {
 		}
 		$result  = $this->aggregator::aggregate( $rows, array( $this->dict, 'id' ), $this->existingSlots( array_keys( $hours ) ) );
 		$samples = $this->sampleRows( $rows );
-		$folded  = array_values( array_unique( array_merge( $folded, array( $name ) ) ) );
 
 		$this->exec( 'START TRANSACTION' );
 		try {
+			$listed = $this->lockFoldedRow();
+			clearstatcache( true, $working );
+			if ( in_array( $name, $listed, true ) || ! is_file( $working ) ) {
+				$this->wpdb->query( 'ROLLBACK' );
+				return null;
+			}
 			$this->upsertHourly( $result['rows'] );
 			$this->insertSamples( $samples );
-			$this->writeFoldedInTransaction( $folded );
+			$listed[] = $name;
+			$this->writeFoldedInTransaction( $listed );
 			$this->exec( 'COMMIT' );
 		} catch ( \Throwable $e ) {
 			$this->wpdb->query( 'ROLLBACK' );
@@ -387,48 +503,153 @@ final class Folder {
 		}
 		$this->tracker->flush();
 
-		$this->buffer->delete( $file );
-		update_option( self::FOLDED_OPTION, array_values( array_diff( $folded, array( $name ) ) ), false );
-
+		$this->finish( $working );
 		return count( $rows );
 	}
 
 	/**
-	 * Take the lock.
+	 * Rename a buffer file to its working name. A file that already is a working copy is returned
+	 * as is.
 	 *
-	 * @param int $now Unix time.
-	 * @return bool Whether this run holds the lock.
+	 * @param string $file Absolute path.
+	 * @return string|null Working path, or null when a working copy of that name exists already.
+	 * @throws \RuntimeException When the rename fails.
 	 */
-	private function lock( int $now ): bool {
-		if ( add_option( self::LOCK_OPTION, $now, '', false ) ) {
-			return true;
+	private function claim( string $file ): ?string {
+		$name = basename( $file );
+		if ( 0 === strpos( $name, self::WORK_PREFIX ) ) {
+			return $file;
 		}
-		wp_cache_delete( self::LOCK_OPTION, 'options' );
-		$held = get_option( self::LOCK_OPTION, false );
-		if ( false !== $held && $now - (int) $held < self::LOCK_TTL ) {
+		$working = dirname( $file ) . '/' . self::WORK_PREFIX . $name;
+		if ( file_exists( $working ) ) {
+			return null;
+		}
+		if ( ! @rename( $file, $working ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.rename_rename -- Same-directory rename in the private buffer dir.
+			throw new \RuntimeException( 'Cannot claim buffer file ' . $name );
+		}
+		return $working;
+	}
+
+	/**
+	 * Delete a committed file; drop its name from the folded list only when it is really gone.
+	 *
+	 * @param string $working Absolute path.
+	 */
+	private function finish( string $working ): void {
+		$name = basename( $working );
+		( $this->unlink )( $working );
+		clearstatcache( true, $working );
+		if ( file_exists( $working ) ) {
+			// Keep the name, so no later run folds the file again.
+			$this->errors[] = 'Could not delete folded buffer file ' . $name;
+			return;
+		}
+		update_option( self::FOLDED_OPTION, array_values( array_diff( $this->readFolded(), array( $name ) ) ), false );
+		$this->clearFailure( $name );
+	}
+
+	/**
+	 * Count a failed fold of a file; quarantine it after MAX_FAILURES.
+	 *
+	 * @param string     $working Absolute path.
+	 * @param \Throwable $e       The failure.
+	 * @return bool True when the file was quarantined and the run may go on.
+	 */
+	private function recordFailure( string $working, \Throwable $e ): bool {
+		$name    = basename( $working );
+		$message = '' !== $e->getMessage() ? $e->getMessage() : get_class( $e );
+		if ( in_array( $name, $this->readFolded(), true ) ) {
+			// Committed already; the next run deletes it. Nothing to quarantine.
 			return false;
 		}
-		update_option( self::LOCK_OPTION, $now, false );
+		$failures = get_option( self::FAILURES_OPTION, array() );
+		$failures = is_array( $failures ) ? $failures : array();
+		$count    = (int) ( $failures[ $name ] ?? 0 ) + 1;
+		if ( $count < self::MAX_FAILURES ) {
+			$failures[ $name ] = $count;
+			update_option( self::FAILURES_OPTION, $failures, false );
+			return false;
+		}
+		$target = dirname( $working ) . '/' . self::QUARANTINE_PREFIX . substr( $name, strlen( self::WORK_PREFIX ) );
+		if ( ! @rename( $working, $target ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.rename_rename -- Same-directory rename in the private buffer dir.
+			$failures[ $name ] = $count;
+			update_option( self::FAILURES_OPTION, $failures, false );
+			return false;
+		}
+		@touch( $target ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions -- Private buffer dir; the purge age counts from the quarantine.
+		unset( $failures[ $name ] );
+		update_option( self::FAILURES_OPTION, $failures, false );
+		$this->errors[] = 'Quarantined ' . basename( $target ) . ' after ' . $count . ' failures: ' . $message;
 		return true;
 	}
 
 	/**
-	 * Release the lock.
+	 * Forget the failures of a file.
+	 *
+	 * @param string $name Working name.
+	 */
+	private function clearFailure( string $name ): void {
+		$failures = get_option( self::FAILURES_OPTION, array() );
+		if ( is_array( $failures ) && isset( $failures[ $name ] ) ) {
+			unset( $failures[ $name ] );
+			update_option( self::FAILURES_OPTION, $failures, false );
+		}
+	}
+
+	/**
+	 * Delete quarantined files older than QUARANTINE_DAYS.
+	 *
+	 * @param string $dir Buffer directory.
+	 * @param int    $now Unix time.
+	 */
+	private function purgeQuarantine( string $dir, int $now ): void {
+		foreach ( self::glob( $dir . '/' . self::QUARANTINE_PREFIX . '*.php' ) as $file ) {
+			$mtime = @filemtime( $file ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- A vanished file is fine.
+			if ( false !== $mtime && $mtime < $now - self::QUARANTINE_DAYS * DAY_IN_SECONDS ) {
+				( $this->unlink )( $file );
+			}
+		}
+	}
+
+	/**
+	 * Whether the time budget is spent.
+	 */
+	private function overBudget(): bool {
+		return $this->over || microtime( true ) - $this->started >= $this->budget;
+	}
+
+	/**
+	 * Take the run lock (MySQL GET_LOCK, released by the server when the connection dies).
+	 *
+	 * @return bool Whether this run holds the lock.
+	 */
+	private function lock(): bool {
+		$got = $this->wpdb->get_var( $this->wpdb->prepare( 'SELECT GET_LOCK(%s, 0)', self::lockName( $this->wpdb ) ) );
+		return '1' === (string) $got;
+	}
+
+	/**
+	 * Release the run lock.
 	 */
 	private function unlock(): void {
-		delete_option( self::LOCK_OPTION );
+		$this->wpdb->query( $this->wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', self::lockName( $this->wpdb ) ) );
 	}
 
 	/**
 	 * The folded list, fresh from the database, with names whose file is gone pruned.
 	 *
-	 * @param string[] $files Foldable files.
+	 * @param string $dir Buffer directory.
 	 * @return string[]
 	 */
-	private function foldedNames( array $files ): array {
+	private function foldedNames( string $dir ): array {
 		add_option( self::FOLDED_OPTION, array(), '', false );
 		$names = $this->readFolded();
-		$kept  = array_values( array_intersect( $names, array_map( 'basename', $files ) ) );
+		$kept  = array();
+		foreach ( $names as $name ) {
+			if ( is_file( $dir . '/' . $name ) ) {
+				$kept[] = $name;
+			}
+		}
 		if ( $kept !== $names ) {
 			update_option( self::FOLDED_OPTION, $kept, false );
 		}
@@ -447,6 +668,23 @@ final class Folder {
 	}
 
 	/**
+	 * Read the folded list inside the open transaction and lock its row until COMMIT/ROLLBACK.
+	 *
+	 * @return string[]
+	 * @throws \RuntimeException When the option row is missing.
+	 */
+	private function lockFoldedRow(): array {
+		$raw = $this->wpdb->get_var(
+			$this->wpdb->prepare( "SELECT option_value FROM {$this->wpdb->options} WHERE option_name = %s FOR UPDATE", self::FOLDED_OPTION )
+		);
+		if ( null === $raw ) {
+			throw new \RuntimeException( 'Missing option ' . self::FOLDED_OPTION . ' ' . $this->wpdb->last_error );
+		}
+		$value = maybe_unserialize( $raw );
+		return is_array( $value ) ? array_values( array_map( 'strval', $value ) ) : array();
+	}
+
+	/**
 	 * Write the folded list as a statement of the open transaction, so it commits together with
 	 * the rows (wp_options is InnoDB). The option exists already (added in foldedNames()).
 	 *
@@ -457,7 +695,7 @@ final class Folder {
 		$updated = $this->wpdb->query(
 			$this->wpdb->prepare(
 				"UPDATE {$this->wpdb->options} SET option_value = %s WHERE option_name = %s",
-				maybe_serialize( $folded ),
+				maybe_serialize( array_values( array_unique( $folded ) ) ),
 				self::FOLDED_OPTION
 			)
 		);
@@ -622,7 +860,8 @@ final class Folder {
 	}
 
 	/**
-	 * Write the unique metrics of every hour that ended at or before the cutoff.
+	 * Write the unique metrics of every hour that ended at or before the cutoff, then roll the hour
+	 * into its day file.
 	 *
 	 * @param int $cutoff Every buffer file before this time has been folded.
 	 * @throws \Throwable When a query fails, after the transaction was rolled back.
@@ -637,12 +876,15 @@ final class Folder {
 			$this->exec( 'START TRANSACTION' );
 			try {
 				foreach ( $stats as $dims => $m ) {
+					// A repeated close never lowers a count. top_ip_share is set first, against the
+					// old unique_ips: it only follows data at least as complete as what is stored.
 					$this->exec(
 						$this->wpdb->prepare(
-							"UPDATE {$table} SET unique_ips = %d, ips_seen_once = %d, top_ip_share = %d WHERE hour = %d AND dims = %s",
+							"UPDATE {$table} SET top_ip_share = IF(unique_ips <= %d, %d, top_ip_share), unique_ips = GREATEST(unique_ips, %d), ips_seen_once = GREATEST(ips_seen_once, %d) WHERE hour = %d AND dims = %s",
+							$m['unique_ips'],
+							min( 10000, $m['top_ip_share'] ),
 							$m['unique_ips'],
 							$m['ips_seen_once'],
-							min( 10000, $m['top_ip_share'] ),
 							$hour,
 							(string) $dims
 						)
@@ -653,70 +895,111 @@ final class Folder {
 				$this->wpdb->query( 'ROLLBACK' );
 				throw $e;
 			}
-			// A crash before this line only repeats the same idempotent UPDATEs next run.
+			// A crash after the commit repeats the GREATEST updates and the roll; both are idempotent.
+			$this->tracker->rollIntoDay( $hour );
 			$this->tracker->dropHour( $hour );
 		}
 	}
 
 	/**
-	 * Write the daily rows of every day that ended at or before the cutoff.
+	 * Write the daily rows of every day that ended at or before the cutoff: days with tracker data
+	 * and days with hourly rows after the last closed day.
 	 *
 	 * @param int $cutoff Every buffer file before this time has been folded.
 	 * @throws \RuntimeException When a query fails.
 	 */
 	private function closeDays( int $cutoff ): void {
 		$hourly = Schema::tables()['hourly'];
-		$daily  = Schema::tables()['daily'];
+		$days   = array();
 		foreach ( $this->tracker->openDays() as $ymd ) {
-			$date = \DateTime::createFromFormat( '!Ymd', $ymd, new \DateTimeZone( 'UTC' ) );
-			if ( false === $date ) {
-				continue;
+			$start = self::dayStart( $ymd );
+			if ( null !== $start ) {
+				$days[ $start ] = true;
 			}
-			$start = $date->getTimestamp();
-			if ( $start + 86400 > $cutoff ) {
-				continue;
-			}
-			$uniques = $this->tracker->dayStats( $ymd );
-			$sums    = $this->wpdb->get_results(
-				$this->wpdb->prepare(
-					"SELECT client_class, SUM(requests) AS requests, SUM(php_ms_sum) AS php_ms FROM {$hourly} WHERE hour >= %d AND hour < %d GROUP BY client_class",
-					$start,
-					$start + 86400
-				),
-				ARRAY_A
-			);
+		}
+
+		$last = self::dayStart( (string) get_option( self::LAST_DAY_OPTION, '' ) );
+		$from = null === $last ? 0 : $last + 86400;
+		while ( true ) {
+			$min = $this->wpdb->get_var( $this->wpdb->prepare( "SELECT MIN(hour) FROM {$hourly} WHERE hour >= %d", $from ) );
 			if ( '' !== $this->wpdb->last_error ) {
 				throw new \RuntimeException( $this->wpdb->last_error );
 			}
-			$classes = array();
-			foreach ( (array) $sums as $row ) {
-				$classes[ (string) $row['client_class'] ] = array( (int) $row['requests'], (int) $row['php_ms'] );
+			if ( null === $min ) {
+				break;
 			}
-			foreach ( array_keys( $uniques ) as $class ) {
-				if ( ! isset( $classes[ $class ] ) ) {
-					$classes[ $class ] = array( 0, 0 );
-				}
+			$day = (int) $min - (int) $min % 86400;
+			if ( $day + 86400 > $cutoff ) {
+				break;
 			}
-			if ( array() !== $classes ) {
-				$values = array();
-				foreach ( $classes as $class => $sum ) {
-					array_push(
-						$values,
-						gmdate( 'Y-m-d', $start ),
-						substr( (string) $class, 0, 16 ),
-						$sum[0],
-						$sum[1],
-						$uniques[ $class ]['unique_ips'] ?? 0,
-						$uniques[ $class ]['ips_seen_once'] ?? 0
-					);
-				}
-				$sql = "INSERT INTO {$daily} (day, client_class, requests, php_ms_sum, unique_ips, ips_seen_once) VALUES "
-					. implode( ',', array_fill( 0, count( $classes ), '(%s,%s,%d,%d,%d,%d)' ) )
-					. ' ON DUPLICATE KEY UPDATE requests = VALUES(requests), php_ms_sum = VALUES(php_ms_sum), unique_ips = VALUES(unique_ips), ips_seen_once = VALUES(ips_seen_once)';
-				$this->exec( $this->wpdb->prepare( $sql, $values ) );
-			}
-			$this->tracker->dropDay( $ymd );
+			$days[ $day ] = true;
+			$from         = $day + 86400;
 		}
+
+		ksort( $days );
+		foreach ( array_keys( $days ) as $start ) {
+			if ( $start + 86400 > $cutoff ) {
+				continue;
+			}
+			$this->closeDay( $start );
+			if ( null === $last || $start > $last ) {
+				$last = $start;
+				update_option( self::LAST_DAY_OPTION, gmdate( 'Ymd', $start ), false );
+			}
+		}
+	}
+
+	/**
+	 * Write the daily rows of one day and drop its tracker file. Requests and PHP time are a full
+	 * recount from the hourly table; uniques never go down on a repeated close.
+	 *
+	 * @param int $start Day start (UTC).
+	 * @throws \RuntimeException When a query fails.
+	 */
+	private function closeDay( int $start ): void {
+		$hourly  = Schema::tables()['hourly'];
+		$daily   = Schema::tables()['daily'];
+		$ymd     = gmdate( 'Ymd', $start );
+		$uniques = $this->tracker->dayStats( $ymd );
+		$sums    = $this->wpdb->get_results(
+			$this->wpdb->prepare(
+				"SELECT client_class, SUM(requests) AS requests, SUM(php_ms_sum) AS php_ms FROM {$hourly} WHERE hour >= %d AND hour < %d GROUP BY client_class",
+				$start,
+				$start + 86400
+			),
+			ARRAY_A
+		);
+		if ( '' !== $this->wpdb->last_error ) {
+			throw new \RuntimeException( $this->wpdb->last_error );
+		}
+		$classes = array();
+		foreach ( (array) $sums as $row ) {
+			$classes[ (string) $row['client_class'] ] = array( (int) $row['requests'], (int) $row['php_ms'] );
+		}
+		foreach ( array_keys( $uniques ) as $class ) {
+			if ( ! isset( $classes[ $class ] ) ) {
+				$classes[ $class ] = array( 0, 0 );
+			}
+		}
+		if ( array() !== $classes ) {
+			$values = array();
+			foreach ( $classes as $class => $sum ) {
+				array_push(
+					$values,
+					gmdate( 'Y-m-d', $start ),
+					substr( (string) $class, 0, 16 ),
+					$sum[0],
+					$sum[1],
+					$uniques[ $class ]['unique_ips'] ?? 0,
+					$uniques[ $class ]['ips_seen_once'] ?? 0
+				);
+			}
+			$sql = "INSERT INTO {$daily} (day, client_class, requests, php_ms_sum, unique_ips, ips_seen_once) VALUES "
+				. implode( ',', array_fill( 0, count( $classes ), '(%s,%s,%d,%d,%d,%d)' ) )
+				. ' ON DUPLICATE KEY UPDATE requests = VALUES(requests), php_ms_sum = VALUES(php_ms_sum), unique_ips = GREATEST(unique_ips, VALUES(unique_ips)), ips_seen_once = GREATEST(ips_seen_once, VALUES(ips_seen_once))';
+			$this->exec( $this->wpdb->prepare( $sql, $values ) );
+		}
+		$this->tracker->dropDay( $ymd );
 	}
 
 	/**
@@ -781,12 +1064,48 @@ final class Folder {
 	 * @param string $file Path.
 	 */
 	private static function minuteOf( string $file ): int {
-		if ( 1 === preg_match( '/^buffer-(\d{12})-/', basename( $file ), $m ) ) {
+		if ( 1 === preg_match( '/^(?:' . self::WORK_PREFIX . ')?buffer-(\d{12})-/', basename( $file ), $m ) ) {
 			$time = \DateTime::createFromFormat( '!YmdHi', $m[1], new \DateTimeZone( 'UTC' ) );
 			if ( false !== $time ) {
 				return $time->getTimestamp();
 			}
 		}
 		return 0;
+	}
+
+	/**
+	 * Start of a UTC day given as Ymd, or null.
+	 *
+	 * @param string $ymd Day.
+	 */
+	private static function dayStart( string $ymd ): ?int {
+		if ( 1 !== preg_match( '/^\d{8}$/', $ymd ) ) {
+			return null;
+		}
+		$date = \DateTime::createFromFormat( '!Ymd', $ymd, new \DateTimeZone( 'UTC' ) );
+		return false === $date ? null : $date->getTimestamp();
+	}
+
+	/**
+	 * The earlier of a pending minute and another one.
+	 *
+	 * @param int|null $pending Current pending minute.
+	 * @param int      $minute  Candidate.
+	 */
+	private static function earliest( ?int $pending, int $minute ): int {
+		return null === $pending ? $minute : min( $pending, $minute );
+	}
+
+	/**
+	 * Sorted glob.
+	 *
+	 * @param string $pattern Pattern.
+	 * @return string[]
+	 */
+	private static function glob( string $pattern ): array {
+		$files = @glob( $pattern ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- An unreadable dir gives no files.
+		$files = is_array( $files ) ? $files : array();
+		sort( $files, SORT_STRING );
+		return $files;
 	}
 }

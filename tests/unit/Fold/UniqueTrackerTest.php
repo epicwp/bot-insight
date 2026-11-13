@@ -49,7 +49,7 @@ final class UniqueTrackerTest extends TestCase {
 		$this->assertSame( 2, $out[ $dims ]['ips_seen_once'] );
 		// Top 10 hashes cover all 4 requests.
 		$this->assertSame( 10000, $out[ $dims ]['top_ip_share'] );
-		$this->assertFileDoesNotExist( $this->dir . '/uniq-2026111300.log' );
+		$this->assertFileDoesNotExist( $this->dir . '/uniq-2026111300.php' );
 		$this->assertSame( array(), $t->closeHour( self::HOUR ) );
 	}
 
@@ -93,8 +93,13 @@ final class UniqueTrackerTest extends TestCase {
 		$t->add( self::HOUR + 7200, md5( 'y', true ), 'search', 'bbbbbbbbbbbbbbbb' );
 		$t->add( self::HOUR, md5( 'z', true ), 'people', 'cccccccccccccccc' );
 
-		$this->assertSame( array( '20261113' ), $t->openDays() );
+		$this->assertSame( array(), $t->openDays() );
 		$this->assertSame( array( self::HOUR, self::HOUR + 3600, self::HOUR + 7200 ), $t->openHours() );
+		foreach ( $t->openHours() as $hour ) {
+			$t->closeHour( $hour );
+		}
+		$this->assertSame( array( '20261113' ), $t->openDays() );
+		$this->assertSame( array(), $t->openHours() );
 
 		$out = $t->closeDay( '20261113' );
 
@@ -112,7 +117,51 @@ final class UniqueTrackerTest extends TestCase {
 			$out
 		);
 		$this->assertSame( array(), $t->openDays() );
-		$this->assertCount( 3, $t->openHours() );
+	}
+
+	public function test_day_file_holds_one_line_per_hash_per_hour(): void {
+		$t = new UniqueTracker( $this->dir );
+		for ( $i = 0; $i < 50; $i++ ) {
+			$t->add( self::HOUR, md5( 'q' . ( $i % 3 ), true ), 'seo', 'aaaaaaaaaaaaaaaa' );
+		}
+		$t->closeHour( self::HOUR );
+
+		$lines = file( $this->dir . '/uniq-20261113.php', FILE_IGNORE_NEW_LINES );
+		$this->assertSame( array( "<?php exit; ?>", "2026111300\tseo\taaaaaaaaaaaaaaaa\t50" ), $lines );
+		$this->assertSame( 0, $t->dayStats( '20261113' )['seo']['ips_seen_once'] );
+	}
+
+	public function test_rolling_an_hour_in_twice_does_not_double_count(): void {
+		$t = new UniqueTracker( $this->dir );
+		$t->add( self::HOUR, md5( 'r', true ), 'seo', 'aaaaaaaaaaaaaaaa' );
+		$t->add( self::HOUR + 3600, md5( 'r', true ), 'seo', 'bbbbbbbbbbbbbbbb' );
+		// A crash between the roll and the hour file delete repeats the roll.
+		$t->rollIntoDay( self::HOUR );
+		$t->rollIntoDay( self::HOUR );
+		$t->closeHour( self::HOUR + 3600 );
+
+		$this->assertSame(
+			array(
+				'seo' => array(
+					'unique_ips'    => 2,
+					'ips_seen_once' => 2,
+				),
+			),
+			$t->dayStats( '20261113' )
+		);
+	}
+
+	public function test_files_are_php_protected(): void {
+		$t = new UniqueTracker( $this->dir );
+		$t->add( self::HOUR, md5( 'h', true ), 'seo', 'aaaaaaaaaaaaaaaa' );
+		$t->flush();
+		$t->add( self::HOUR, md5( 'h', true ), 'seo', 'bbbbbbbbbbbbbbbb' );
+		$t->flush();
+
+		$content = (string) file_get_contents( $this->dir . '/uniq-2026111300.php' );
+		$this->assertStringStartsWith( "<?php exit; ?>\n", $content );
+		$this->assertSame( 1, substr_count( $content, '<?php' ) );
+		$this->assertSame( 2, $t->hourStats( self::HOUR )[ md5( 'h', true ) ]['unique_ips'] );
 	}
 
 	public function test_stats_do_not_delete_until_dropped(): void {
@@ -122,6 +171,8 @@ final class UniqueTrackerTest extends TestCase {
 
 		$this->assertSame( 1, $t->hourStats( self::HOUR )[ $dims ]['unique_ips'] );
 		$this->assertSame( 1, $t->hourStats( self::HOUR )[ $dims ]['unique_ips'] );
+		$t->rollIntoDay( self::HOUR );
+		$this->assertSame( 1, $t->dayStats( '20261113' )['seo']['unique_ips'] );
 		$this->assertSame( 1, $t->dayStats( '20261113' )['seo']['unique_ips'] );
 
 		$t->dropHour( self::HOUR );

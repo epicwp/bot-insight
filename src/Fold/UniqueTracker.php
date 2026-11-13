@@ -8,14 +8,22 @@
 
 namespace BotInsight\Fold;
 
+use BotInsight\Buffer\FileBuffer;
+
 // phpcs:disable WordPress.WP.AlternativeFunctions, WordPress.PHP.NoSilencedErrors.Discouraged -- Plain files in the plugin's private buffer directory; runs inside the locked fold only.
 
 /**
  * Keeps the salted IP hashes seen per hour (per dims) and per day (per client class) in
  * append-only files, and turns them into unique counts when an hour or day closes.
  *
- * Hour file `uniq-<YmdH>.log`: `hex(dims)\tclass\tip_hash` per line (dims are raw bytes, so they
- * are hex encoded to keep tabs and newlines out). Day file `uniq-<Ymd>.log`: `class\tip_hash`.
+ * Every file starts with `<?php exit; ?>` and ends in `.php`, like the buffer files.
+ *
+ * - Hour file `uniq-<YmdH>.php`: one line per request, `hex(dims)\tclass\tip_hash` (dims are raw
+ *   bytes, so they are hex encoded to keep tabs and newlines out).
+ * - Day file `uniq-<Ymd>.php`: written when an hour is rolled in, one line per class and hash of
+ *   that hour, `YmdH\tclass\tip_hash\tcount`. Rolling the same hour in twice (a crash between the
+ *   roll and the hour file delete) is harmless: per hour, class and hash the larger count wins.
+ *
  * Lines are buffered in memory and written by `flush()`; every reading method flushes first.
  */
 final class UniqueTracker {
@@ -72,17 +80,11 @@ final class UniqueTracker {
 		if ( '' === $ip_hash ) {
 			return;
 		}
-		$class   = self::clean( $client_class );
-		$ip_hash = self::clean( $ip_hash );
-		$h       = 'uniq-' . gmdate( 'YmdH', $hour ) . '.log';
-		$d       = 'uniq-' . gmdate( 'Ymd', $hour ) . '.log';
-
-		$this->pending[ $h ] = ( $this->pending[ $h ] ?? '' ) . bin2hex( $dims ) . "\t" . $class . "\t" . $ip_hash . "\n";
-		$this->pending[ $d ] = ( $this->pending[ $d ] ?? '' ) . $class . "\t" . $ip_hash . "\n";
+		$this->append( self::hourFile( $hour ), bin2hex( $dims ) . "\t" . self::clean( $client_class ) . "\t" . self::clean( $ip_hash ) . "\n" );
 	}
 
 	/**
-	 * Write pending lines.
+	 * Write pending lines. A new file gets the `<?php exit; ?>` header first.
 	 *
 	 * @throws \RuntimeException When a file cannot be written.
 	 */
@@ -91,7 +93,11 @@ final class UniqueTracker {
 		$this->pending = array();
 		$failed        = array();
 		foreach ( $pending as $name => $lines ) {
-			if ( false === @file_put_contents( $this->dir . '/' . $name, $lines, FILE_APPEND | LOCK_EX ) ) {
+			$path = $this->dir . '/' . $name;
+			if ( ! @is_file( $path ) ) {
+				$lines = FileBuffer::HEADER . $lines;
+			}
+			if ( false === @file_put_contents( $path, $lines, FILE_APPEND | LOCK_EX ) ) {
 				$failed[] = $name;
 			}
 		}
@@ -108,7 +114,7 @@ final class UniqueTracker {
 	 */
 	public function openHours(): array {
 		$out = array();
-		foreach ( $this->names( '/^uniq-(\d{10})\.log$/' ) as $stamp ) {
+		foreach ( $this->names( '/^uniq-(\d{10})\.php$/' ) as $stamp ) {
 			$time = \DateTime::createFromFormat( '!YmdH', $stamp, new \DateTimeZone( 'UTC' ) );
 			if ( false !== $time ) {
 				$out[] = $time->getTimestamp();
@@ -124,7 +130,7 @@ final class UniqueTracker {
 	 * @return string[]
 	 */
 	public function openDays(): array {
-		$out = $this->names( '/^uniq-(\d{8})\.log$/' );
+		$out = $this->names( '/^uniq-(\d{8})\.php$/' );
 		sort( $out, SORT_STRING );
 		return $out;
 	}
@@ -137,10 +143,7 @@ final class UniqueTracker {
 	 */
 	public function hourStats( int $hour ): array {
 		$counts = array();
-		foreach ( $this->lines( 'uniq-' . gmdate( 'YmdH', $hour ) . '.log' ) as $parts ) {
-			if ( 3 !== count( $parts ) || 1 !== preg_match( '/^[0-9a-f]*$/', $parts[0] ) || 0 !== strlen( $parts[0] ) % 2 ) {
-				continue;
-			}
+		foreach ( $this->hourLines( $hour ) as $parts ) {
 			$dims = (string) hex2bin( $parts[0] );
 			if ( ! isset( $counts[ $dims ][ $parts[2] ] ) ) {
 				$counts[ $dims ][ $parts[2] ] = 0;
@@ -162,21 +165,50 @@ final class UniqueTracker {
 	}
 
 	/**
-	 * Unique metrics of a day per client class, without deleting the file.
+	 * Append an hour's per-class, per-hash request counts to its day file.
+	 *
+	 * @param int $hour Hour start (UTC).
+	 */
+	public function rollIntoDay( int $hour ): void {
+		$counts = array();
+		foreach ( $this->hourLines( $hour ) as $parts ) {
+			if ( ! isset( $counts[ $parts[1] ][ $parts[2] ] ) ) {
+				$counts[ $parts[1] ][ $parts[2] ] = 0;
+			}
+			++$counts[ $parts[1] ][ $parts[2] ];
+		}
+		$stamp = gmdate( 'YmdH', $hour );
+		$lines = '';
+		foreach ( $counts as $class => $per_hash ) {
+			foreach ( $per_hash as $hash => $count ) {
+				$lines .= $stamp . "\t" . $class . "\t" . $hash . "\t" . $count . "\n";
+			}
+		}
+		if ( '' !== $lines ) {
+			$this->append( 'uniq-' . gmdate( 'Ymd', $hour ) . '.php', $lines );
+			$this->flush();
+		}
+	}
+
+	/**
+	 * Unique metrics of a day per client class (from the hours rolled in), without deleting the file.
 	 *
 	 * @param string $ymd Day (Ymd, UTC).
 	 * @return array<string, array{unique_ips:int, ips_seen_once:int}> Keyed by class, sorted.
 	 */
 	public function dayStats( string $ymd ): array {
-		$counts = array();
-		foreach ( $this->lines( 'uniq-' . self::ymd( $ymd ) . '.log' ) as $parts ) {
-			if ( 2 !== count( $parts ) ) {
+		$per_hour = array();
+		foreach ( $this->lines( 'uniq-' . self::ymd( $ymd ) . '.php' ) as $parts ) {
+			if ( 4 !== count( $parts ) || 1 !== preg_match( '/^\d{10}$/', $parts[0] ) || ! ctype_digit( $parts[3] ) ) {
 				continue;
 			}
-			if ( ! isset( $counts[ $parts[0] ][ $parts[1] ] ) ) {
-				$counts[ $parts[0] ][ $parts[1] ] = 0;
-			}
-			++$counts[ $parts[0] ][ $parts[1] ];
+			$key              = $parts[0] . "\t" . $parts[1] . "\t" . $parts[2];
+			$per_hour[ $key ] = max( $per_hour[ $key ] ?? 0, (int) $parts[3] );
+		}
+		$counts = array();
+		foreach ( $per_hour as $key => $count ) {
+			list( , $class, $hash )    = explode( "\t", (string) $key );
+			$counts[ $class ][ $hash ] = ( $counts[ $class ][ $hash ] ?? 0 ) + $count;
 		}
 		ksort( $counts, SORT_STRING );
 		$out = array();
@@ -196,7 +228,7 @@ final class UniqueTracker {
 	 */
 	public function dropHour( int $hour ): void {
 		$this->flush();
-		@unlink( $this->dir . '/uniq-' . gmdate( 'YmdH', $hour ) . '.log' );
+		@unlink( $this->dir . '/' . self::hourFile( $hour ) );
 	}
 
 	/**
@@ -206,17 +238,18 @@ final class UniqueTracker {
 	 */
 	public function dropDay( string $ymd ): void {
 		$this->flush();
-		@unlink( $this->dir . '/uniq-' . self::ymd( $ymd ) . '.log' );
+		@unlink( $this->dir . '/uniq-' . self::ymd( $ymd ) . '.php' );
 	}
 
 	/**
-	 * Unique metrics of an hour, then delete its file.
+	 * Unique metrics of an hour; then roll it into its day and delete its file.
 	 *
 	 * @param int $hour Hour start (UTC).
 	 * @return array<string, array{unique_ips:int, ips_seen_once:int, top_ip_share:int}>
 	 */
 	public function closeHour( int $hour ): array {
 		$out = $this->hourStats( $hour );
+		$this->rollIntoDay( $hour );
 		$this->dropHour( $hour );
 		return $out;
 	}
@@ -234,7 +267,31 @@ final class UniqueTracker {
 	}
 
 	/**
-	 * Tab-split lines of a tracker file.
+	 * Valid lines of an hour file: `[hex dims, class, hash]`.
+	 *
+	 * @param int $hour Hour start (UTC).
+	 * @return \Generator<int, string[]>
+	 */
+	private function hourLines( int $hour ): \Generator {
+		foreach ( $this->lines( self::hourFile( $hour ) ) as $parts ) {
+			if ( 3 === count( $parts ) && '' !== $parts[0] && 0 === strlen( $parts[0] ) % 2 && ctype_xdigit( $parts[0] ) ) {
+				yield $parts;
+			}
+		}
+	}
+
+	/**
+	 * Queue lines for a file.
+	 *
+	 * @param string $name  File name.
+	 * @param string $lines Lines.
+	 */
+	private function append( string $name, string $lines ): void {
+		$this->pending[ $name ] = ( $this->pending[ $name ] ?? '' ) . $lines;
+	}
+
+	/**
+	 * Tab-split lines of a tracker file, without the header.
 	 *
 	 * @param string $name File name.
 	 * @return \Generator<int, string[]>
@@ -252,7 +309,7 @@ final class UniqueTracker {
 					break;
 				}
 				$line = rtrim( $line, "\r\n" );
-				if ( '' !== $line ) {
+				if ( '' !== $line && 0 !== strpos( $line, '<?php' ) ) {
 					yield explode( "\t", $line );
 				}
 			}
@@ -269,7 +326,7 @@ final class UniqueTracker {
 	 */
 	private function names( string $pattern ): array {
 		$this->flush();
-		$files = @glob( $this->dir . '/uniq-*.log' );
+		$files = @glob( $this->dir . '/uniq-*.php' );
 		$out   = array();
 		foreach ( is_array( $files ) ? $files : array() as $file ) {
 			if ( 1 === preg_match( $pattern, basename( $file ), $m ) ) {
@@ -277,6 +334,15 @@ final class UniqueTracker {
 			}
 		}
 		return $out;
+	}
+
+	/**
+	 * Hour file name.
+	 *
+	 * @param int $hour Hour start (UTC).
+	 */
+	private static function hourFile( int $hour ): string {
+		return 'uniq-' . gmdate( 'YmdH', $hour ) . '.php';
 	}
 
 	/**

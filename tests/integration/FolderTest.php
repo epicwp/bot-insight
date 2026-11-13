@@ -92,7 +92,8 @@ final class FolderTest extends \WP_UnitTestCase {
 		$this->assertSame( '500', $this->scalar( 'SELECT SUM(php_ms_sum) FROM %t' ) );
 		$this->assertSame( array(), ( new FileBuffer( $this->dir ) )->foldable( $now + 3600 ) );
 		$this->assertSame( array(), get_option( 'bot_insight_folded_files' ) );
-		$this->assertFalse( get_option( 'bot_insight_fold_lock' ) );
+		$this->assertSame( array(), glob( $this->dir . '/folding-*' ) );
+		$this->assertTrue( $this->lockIsFree() );
 		$this->assertSame( array( $stats ), $this->fired );
 
 		$status = get_option( 'bot_insight_fold_status' );
@@ -155,74 +156,202 @@ final class FolderTest extends \WP_UnitTestCase {
 		$this->assertSame( '1', $row['verified'] );
 	}
 
-	public function test_fresh_lock_skips_the_run_and_changes_nothing(): void {
-		$now  = $this->now();
-		$hour = $this->hourStart( $now ) - 7200;
-		$file = $this->write( $hour, array( $this->rec( $hour + 1, '198.51.100.1' ) ) );
-		add_option( 'bot_insight_fold_lock', $now - 100, '', 'no' );
+	public function test_lock_held_by_another_connection_skips_the_run_and_changes_nothing(): void {
+		$now   = $this->now();
+		$hour  = $this->hourStart( $now ) - 7200;
+		$file  = $this->write( $hour, array( $this->rec( $hour + 1, '198.51.100.1' ) ) );
+		$other = $this->otherConnection();
+		$this->assertSame( '1', $other->get_var( $other->prepare( 'SELECT GET_LOCK(%s, 0)', Folder::lockName( $other ) ) ) );
 
 		$stats = $this->folder()->run( $now );
 
+		$other->query( $other->prepare( 'SELECT RELEASE_LOCK(%s)', Folder::lockName( $other ) ) );
+		$other->close();
 		$this->assertTrue( $stats['skipped_lock'] );
 		$this->assertSame( 0, $stats['files'] );
 		$this->assertSame( '0', $this->scalar( 'SELECT COUNT(*) FROM %t' ) );
 		$this->assertFileExists( $file );
-		$this->assertSame( $now - 100, (int) get_option( 'bot_insight_fold_lock' ) );
 		$this->assertSame( array(), $this->fired );
 	}
 
-	public function test_stale_lock_is_taken_over_and_released(): void {
-		$now  = $this->now();
-		$hour = $this->hourStart( $now ) - 7200;
-		$file = $this->write( $hour, array( $this->rec( $hour + 1, '198.51.100.1' ) ) );
-		add_option( 'bot_insight_fold_lock', $now - 241, '', 'no' );
+	public function test_lock_of_a_dead_connection_is_released_by_the_server(): void {
+		$now   = $this->now();
+		$hour  = $this->hourStart( $now ) - 7200;
+		$file  = $this->write( $hour, array( $this->rec( $hour + 1, '198.51.100.1' ) ) );
+		$other = $this->otherConnection();
+		$this->assertSame( '1', $other->get_var( $other->prepare( 'SELECT GET_LOCK(%s, 0)', Folder::lockName( $other ) ) ) );
+		$other->close();
 
 		$stats = $this->folder()->run( $now );
 
 		$this->assertFalse( $stats['skipped_lock'] );
 		$this->assertSame( 1, $stats['files'] );
 		$this->assertFileDoesNotExist( $file );
-		$this->assertFalse( get_option( 'bot_insight_fold_lock' ) );
+		$this->assertTrue( $this->lockIsFree() );
+	}
+
+	public function test_file_committed_by_an_interleaved_run_is_not_counted_again(): void {
+		$now     = $this->now();
+		$hour    = $this->hourStart( $now ) - 7200;
+		$file    = $this->write( $hour, array( $this->rec( $hour + 1, '192.0.2.10', self::GOOGLEBOT ) ) );
+		$working = dirname( $file ) . '/folding-' . basename( $file );
+		// The DNS check runs while this run enriches, i.e. after it read the folded list and
+		// before its transaction: simulate a second run committing the same file right then.
+		$reverse = static function () use ( $working ) {
+			update_option( 'bot_insight_folded_files', array( basename( $working ) ), false );
+			return false;
+		};
+
+		$stats = $this->folder( null, $reverse )->run( $now );
+
+		$this->assertSame( 0, $stats['files'] );
+		$this->assertSame( 0, $stats['records'] );
+		$this->assertSame( '0', $this->scalar( 'SELECT COUNT(*) FROM %t' ) );
+		$this->assertSame( '0', $this->scalar( 'SELECT COUNT(*) FROM %s', 'sample' ) );
+		$this->assertSame( array( basename( $working ) ), get_option( 'bot_insight_folded_files' ) );
+	}
+
+	public function test_file_removed_by_an_interleaved_run_is_skipped(): void {
+		$now     = $this->now();
+		$hour    = $this->hourStart( $now ) - 7200;
+		$file    = $this->write( $hour, array( $this->rec( $hour + 1, '192.0.2.10', self::GOOGLEBOT ) ) );
+		$working = dirname( $file ) . '/folding-' . basename( $file );
+		$reverse = static function () use ( $working ) {
+			unlink( $working ); // phpcs:ignore WordPress.WP.AlternativeFunctions
+			return false;
+		};
+
+		$stats = $this->folder( null, $reverse )->run( $now );
+
+		$this->assertSame( 0, $stats['files'] );
+		$this->assertSame( '0', $this->scalar( 'SELECT COUNT(*) FROM %t' ) );
 	}
 
 	public function test_file_committed_before_a_crash_is_deleted_without_adding_rows(): void {
-		$now  = $this->now();
-		$hour = $this->hourStart( $now ) - 7200;
-		$file = $this->write( $hour, array( $this->rec( $hour + 1, '198.51.100.1' ), $this->rec( $hour + 2, '198.51.100.2' ) ) );
-		update_option( 'bot_insight_folded_files', array( basename( $file ) ), false );
+		$now     = $this->now();
+		$hour    = $this->hourStart( $now ) - 7200;
+		$file    = $this->write( $hour, array( $this->rec( $hour + 1, '198.51.100.1' ), $this->rec( $hour + 2, '198.51.100.2' ) ) );
+		$working = dirname( $file ) . '/folding-' . basename( $file );
+		rename( $file, $working ); // phpcs:ignore WordPress.WP.AlternativeFunctions
+		update_option( 'bot_insight_folded_files', array( basename( $working ) ), false );
 
 		$stats = $this->folder()->run( $now );
 
 		$this->assertSame( 0, $stats['records'] );
-		$this->assertFileDoesNotExist( $file );
+		$this->assertFileDoesNotExist( $working );
 		$this->assertSame( '0', $this->scalar( 'SELECT COUNT(*) FROM %t' ) );
 		$this->assertSame( array(), get_option( 'bot_insight_folded_files' ) );
 	}
 
+	public function test_claimed_file_left_by_a_crash_is_folded_before_a_new_file_of_that_name(): void {
+		$now     = $this->now();
+		$hour    = $this->hourStart( $now ) - 7200;
+		$file    = $this->write( $hour, array( $this->rec( $hour + 1, '198.51.100.1' ), $this->rec( $hour + 2, '198.51.100.2' ) ) );
+		$working = dirname( $file ) . '/folding-' . basename( $file );
+		rename( $file, $working ); // phpcs:ignore WordPress.WP.AlternativeFunctions
+		// A late request of that minute created the original name again.
+		$this->write( $hour, array( $this->rec( $hour + 3, '198.51.100.3' ) ) );
+
+		$stats = $this->folder()->run( $now );
+
+		$this->assertSame( 2, $stats['files'] );
+		$this->assertSame( '3', $this->scalar( 'SELECT SUM(requests) FROM %t' ) );
+		$this->assertSame( array(), glob( $this->dir . '/*buffer-*' ) );
+	}
+
 	public function test_failure_after_commit_never_double_counts(): void {
-		$now  = $this->now();
-		$hour = $this->hourStart( $now ) - 7200;
-		$file = $this->write( $hour, array( $this->rec( $hour + 1, '198.51.100.1' ), $this->rec( $hour + 2, '198.51.100.2' ) ) );
+		$now     = $this->now();
+		$hour    = $this->hourStart( $now ) - 7200;
+		$file    = $this->write( $hour, array( $this->rec( $hour + 1, '198.51.100.1' ), $this->rec( $hour + 2, '198.51.100.2' ) ) );
+		$working = dirname( $file ) . '/folding-' . basename( $file );
 
 		// The tracker cannot write: the run fails after the commit, before the file delete.
 		$stats = $this->folder( $this->dir . '/missing' )->run( $now );
 
 		$this->assertSame( 0, $stats['files'] );
-		$this->assertFileExists( $file );
+		$this->assertFileExists( $working );
 		$this->assertSame( '2', $this->scalar( 'SELECT SUM(requests) FROM %t' ) );
-		$this->assertSame( array( basename( $file ) ), get_option( 'bot_insight_folded_files' ) );
+		$this->assertSame( array( basename( $working ) ), get_option( 'bot_insight_folded_files' ) );
 		$this->assertStringContainsString( 'unique tracker', get_option( 'bot_insight_fold_status' )['last_error'] );
 
 		$this->folder()->run( $now );
 
-		$this->assertFileDoesNotExist( $file );
+		$this->assertFileDoesNotExist( $working );
 		$this->assertSame( '2', $this->scalar( 'SELECT SUM(requests) FROM %t' ) );
 		$this->assertSame( '2', $this->scalar( 'SELECT COUNT(*) FROM %s', 'sample' ) );
 		$this->assertSame( array(), get_option( 'bot_insight_folded_files' ) );
 	}
 
+	public function test_file_that_cannot_be_deleted_keeps_its_name_and_is_never_folded_again(): void {
+		$now     = $this->now();
+		$hour    = $this->hourStart( $now ) - 7200;
+		$file    = $this->write( $hour, array( $this->rec( $hour + 1, '198.51.100.1' ) ) );
+		$working = dirname( $file ) . '/folding-' . basename( $file );
+		$noop    = static function (): void {};
+
+		$this->folder( null, null, $noop )->run( $now );
+
+		$this->assertFileExists( $working );
+		$this->assertSame( array( basename( $working ) ), get_option( 'bot_insight_folded_files' ) );
+		$this->assertStringContainsString( 'Could not delete', get_option( 'bot_insight_fold_status' )['last_error'] );
+
+		$this->folder( null, null, $noop )->run( $now );
+		$this->folder( null, null, $noop )->run( $now );
+
+		$this->assertSame( '1', $this->scalar( 'SELECT SUM(requests) FROM %t' ) );
+		$this->assertSame( array( basename( $working ) ), get_option( 'bot_insight_folded_files' ) );
+
+		$this->folder()->run( $now );
+
+		$this->assertFileDoesNotExist( $working );
+		$this->assertSame( '1', $this->scalar( 'SELECT SUM(requests) FROM %t' ) );
+		$this->assertSame( array(), get_option( 'bot_insight_folded_files' ) );
+		$this->assertSame( '', get_option( 'bot_insight_fold_status' )['last_error'] );
+	}
+
+	public function test_poison_file_is_quarantined_after_three_failures_and_the_run_goes_on(): void {
+		global $wpdb;
+		$now    = $this->now();
+		$hour   = $this->hourStart( $now ) - 7200;
+		$first  = $this->write( $hour, array( $this->rec( $hour + 1, '198.51.100.1' ) ) );
+		$second = $this->write( $hour + 60, array( $this->rec( $hour + 61, '198.51.100.2' ) ) );
+		$wpdb->query( 'DROP TABLE ' . Schema::tables()['sample'] ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		$suppress = $wpdb->suppress_errors( true );
+
+		$this->folder()->run( $now );
+		$this->folder()->run( $now );
+		$this->assertSame( array( 'folding-' . basename( $first ) => 2 ), get_option( 'bot_insight_fold_failures' ) );
+		$this->assertFileExists( $second );
+
+		$this->folder()->run( $now );
+		$wpdb->suppress_errors( $suppress );
+
+		$this->assertFileExists( $this->dir . '/quarantine-' . basename( $first ) );
+		$this->assertFileDoesNotExist( $this->dir . '/folding-' . basename( $first ) );
+		$this->assertStringContainsString( 'Quarantined quarantine-' . basename( $first ), get_option( 'bot_insight_fold_status' )['last_error'] );
+		// The run went on to the next file, which failed once.
+		$this->assertSame( array( 'folding-' . basename( $second ) => 1 ), get_option( 'bot_insight_fold_failures' ) );
+		$this->assertSame( array(), ( new FileBuffer( $this->dir ) )->foldable( $now ) );
+		$this->assertSame( '0', $this->scalar( 'SELECT COUNT(*) FROM %t' ) );
+	}
+
+	public function test_old_quarantined_files_are_purged(): void {
+		$now = $this->now();
+		$old = $this->dir . '/quarantine-buffer-202001010000-abc-1.php';
+		$new = $this->dir . '/quarantine-buffer-202001010001-abc-1.php';
+		file_put_contents( $old, FileBuffer::HEADER ); // phpcs:ignore WordPress.WP.AlternativeFunctions
+		file_put_contents( $new, FileBuffer::HEADER ); // phpcs:ignore WordPress.WP.AlternativeFunctions
+		touch( $old, $now - 8 * DAY_IN_SECONDS );
+		touch( $new, $now - 6 * DAY_IN_SECONDS );
+
+		$this->folder()->run( $now );
+
+		$this->assertFileDoesNotExist( $old );
+		$this->assertFileExists( $new );
+	}
+
 	public function test_names_of_files_that_are_gone_are_pruned(): void {
-		update_option( 'bot_insight_folded_files', array( 'buffer-202001010000-abc-1.php' ), false );
+		update_option( 'bot_insight_folded_files', array( 'folding-buffer-202001010000-abc-1.php' ), false );
 
 		$this->folder()->run( $this->now() );
 
@@ -252,7 +381,7 @@ final class FolderTest extends \WP_UnitTestCase {
 		foreach ( (array) $wpdb->get_col( "SELECT option_value FROM $wpdb->options WHERE option_name LIKE 'bot\\_insight\\_%'" ) as $value ) {
 			$haystack .= $value . "\n";
 		}
-		foreach ( (array) glob( $this->dir . '/uniq-*.log' ) as $file ) {
+		foreach ( (array) glob( $this->dir . '/uniq-*.php' ) as $file ) {
 			$haystack .= (string) file_get_contents( (string) $file ); // phpcs:ignore WordPress.WP.AlternativeFunctions
 		}
 		$this->assertNotSame( '', $haystack );
@@ -291,7 +420,7 @@ final class FolderTest extends \WP_UnitTestCase {
 			),
 			$rows
 		);
-		$this->assertFileDoesNotExist( $this->dir . '/uniq-' . gmdate( 'YmdH', $hour ) . '.log' );
+		$this->assertFileDoesNotExist( $this->dir . '/uniq-' . gmdate( 'YmdH', $hour ) . '.php' );
 	}
 
 	public function test_open_hour_keeps_its_unique_file(): void {
@@ -302,7 +431,7 @@ final class FolderTest extends \WP_UnitTestCase {
 		$this->folder()->run( $now );
 
 		$this->assertSame( '0', $this->scalar( 'SELECT SUM(unique_ips) FROM %t' ) );
-		$this->assertFileExists( $this->dir . '/uniq-' . gmdate( 'YmdH', $hour ) . '.log' );
+		$this->assertFileExists( $this->dir . '/uniq-' . gmdate( 'YmdH', $hour ) . '.php' );
 	}
 
 	public function test_hour_with_unfolded_files_left_is_not_closed(): void {
@@ -311,7 +440,7 @@ final class FolderTest extends \WP_UnitTestCase {
 		// First run while the hour is still current: its uniques stay open.
 		$this->write( $hour + 60, array( $this->rec( $hour + 61, '198.51.100.1' ) ) );
 		$this->folder()->run( $hour + 180 );
-		$this->assertFileExists( $this->dir . '/uniq-' . gmdate( 'YmdH', $hour ) . '.log' );
+		$this->assertFileExists( $this->dir . '/uniq-' . gmdate( 'YmdH', $hour ) . '.php' );
 
 		// Later a run with no time budget folds nothing; a file of the hour is still waiting.
 		$second = $this->write( $hour + 120, array( $this->rec( $hour + 121, '198.51.100.2' ) ) );
@@ -320,7 +449,7 @@ final class FolderTest extends \WP_UnitTestCase {
 		$this->assertSame( 0, $stats['files'] );
 		$this->assertFileExists( $second );
 		$this->assertSame( '0', $this->scalar( 'SELECT SUM(unique_ips) FROM %t' ) );
-		$this->assertFileExists( $this->dir . '/uniq-' . gmdate( 'YmdH', $hour ) . '.log' );
+		$this->assertFileExists( $this->dir . '/uniq-' . gmdate( 'YmdH', $hour ) . '.php' );
 
 		// With the file folded, the hour closes with both IPs.
 		$this->folder()->run( $now );
@@ -356,7 +485,57 @@ final class FolderTest extends \WP_UnitTestCase {
 		$this->assertSame( '1', $people['ips_seen_once'] );
 		$this->assertSame( '1', $bots['requests'] );
 		$this->assertSame( '1', $bots['unique_ips'] );
-		$this->assertSame( array(), glob( $this->dir . '/uniq-' . gmdate( 'Ymd', $day ) . '*.log' ) );
+		$this->assertSame( array(), glob( $this->dir . '/uniq-' . gmdate( 'Ymd', $day ) . '*.php' ) );
+	}
+
+	public function test_reclosing_an_hour_never_lowers_its_uniques(): void {
+		$now  = $this->now();
+		$hour = $this->hourStart( $now ) - 7200;
+		$this->write( $hour, array( $this->rec( $hour + 1, '198.51.100.1' ), $this->rec( $hour + 2, '198.51.100.2' ), $this->rec( $hour + 3, '198.51.100.3' ) ) );
+		$this->folder()->run( $now );
+		$this->assertSame( '3', $this->scalar( 'SELECT SUM(unique_ips) FROM %t' ) );
+
+		// A late file for the closed hour carries only one IP.
+		$this->write( $hour + 60, array( $this->rec( $hour + 61, '198.51.100.9' ) ) );
+		$this->folder()->run( $now );
+
+		$this->assertSame( '4', $this->scalar( 'SELECT SUM(requests) FROM %t' ) );
+		$this->assertSame( '3', $this->scalar( 'SELECT SUM(unique_ips) FROM %t' ) );
+		$this->assertSame( '10000', $this->scalar( 'SELECT MAX(top_ip_share) FROM %t' ) );
+	}
+
+	public function test_day_without_tracker_data_still_gets_daily_rows(): void {
+		global $wpdb;
+		$today = (int) ( floor( $this->now() / 86400 ) * 86400 );
+		$day   = $today - 86400;
+		$this->write( $day + 36000, array( $this->rec( $day + 36001, '198.51.100.1' ), $this->rec( $day + 36002, '198.51.100.2' ) ) );
+		// Fold while that day is still current, then lose its unique data.
+		$this->folder()->run( $day + 40000 );
+		foreach ( (array) glob( $this->dir . '/uniq-*.php' ) as $uniq ) {
+			unlink( (string) $uniq ); // phpcs:ignore WordPress.WP.AlternativeFunctions
+		}
+
+		$this->folder()->run( $today + 1800 );
+
+		$table = Schema::tables()['daily'];
+		$rows  = $wpdb->get_results( "SELECT day, client_class, requests, unique_ips FROM $table", ARRAY_A ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$this->assertSame(
+			array(
+				array(
+					'day'          => gmdate( 'Y-m-d', $day ),
+					'client_class' => 'people',
+					'requests'     => '2',
+					'unique_ips'   => '0',
+				),
+			),
+			$rows
+		);
+		$this->assertSame( gmdate( 'Ymd', $day ), get_option( 'bot_insight_last_closed_day' ) );
+
+		// The closed day is not rescanned: deleting its row stays deleted.
+		$wpdb->query( "DELETE FROM $table" ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$this->folder()->run( $today + 2400 );
+		$this->assertSame( '0', $this->scalar( 'SELECT COUNT(*) FROM %s', 'daily' ) );
 	}
 
 	public function test_overflow_guard_holds_across_runs(): void {
@@ -399,10 +578,10 @@ final class FolderTest extends \WP_UnitTestCase {
 		$wpdb->suppress_errors( $suppress );
 
 		$this->assertSame( 0, $stats['files'] );
-		$this->assertFileExists( $file );
+		$this->assertFileExists( dirname( $file ) . '/folding-' . basename( $file ) );
 		$this->assertSame( '0', $this->scalar( 'SELECT COUNT(*) FROM %t' ) );
 		$this->assertSame( array(), get_option( 'bot_insight_folded_files' ) );
-		$this->assertFalse( get_option( 'bot_insight_fold_lock' ) );
+		$this->assertTrue( $this->lockIsFree() );
 		$this->assertNotSame( '', get_option( 'bot_insight_fold_status' )['last_error'] );
 		$this->assertCount( 1, $this->fired );
 	}
@@ -426,15 +605,17 @@ final class FolderTest extends \WP_UnitTestCase {
 	/**
 	 * Folder with a fake-DNS verifier and the fixture bot list.
 	 *
-	 * @param string|null $tracker_dir Unique tracker directory (default: the buffer dir).
+	 * @param string|null   $tracker_dir Unique tracker directory (default: the buffer dir).
+	 * @param callable|null $reverse     Reverse DNS callable (default: always fails).
+	 * @param callable|null $unlink      File delete callable (default: the real one).
 	 */
-	private function folder( ?string $tracker_dir = null ): Folder {
+	private function folder( ?string $tracker_dir = null, ?callable $reverse = null, ?callable $unlink = null ): Folder {
 		global $wpdb;
 		$root     = dirname( __DIR__ );
 		$list     = BotList::fromFile( $root . '/fixtures/bots.json' );
 		$verifier = new Verifier(
 			new IpRanges( $root . '/fixtures/ranges' ),
-			static function () {
+			$reverse ?? static function () {
 				return false;
 			},
 			static function () {
@@ -464,7 +645,8 @@ final class FolderTest extends \WP_UnitTestCase {
 			new Aggregator(),
 			new Dictionary( $wpdb ),
 			new UniqueTracker( $tracker_dir ?? $this->dir ),
-			$wpdb
+			$wpdb,
+			$unlink
 		);
 	}
 
@@ -542,6 +724,24 @@ final class FolderTest extends \WP_UnitTestCase {
 		$sql    = str_replace( array( '%t', '%s' ), array( $tables['hourly'], $tables[ $short ] ), $sql );
 		$value  = $wpdb->get_var( $sql ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 		return null === $value ? '0' : $value;
+	}
+
+	/**
+	 * A second database connection.
+	 */
+	private function otherConnection(): \wpdb {
+		global $wpdb;
+		$other = new \wpdb( DB_USER, DB_PASSWORD, DB_NAME, DB_HOST );
+		$other->set_prefix( $wpdb->prefix );
+		return $other;
+	}
+
+	/**
+	 * Whether the fold lock is free.
+	 */
+	private function lockIsFree(): bool {
+		global $wpdb;
+		return '1' === $wpdb->get_var( $wpdb->prepare( 'SELECT IS_FREE_LOCK(%s)', Folder::lockName( $wpdb ) ) );
 	}
 
 	private function now(): int {
