@@ -101,11 +101,12 @@ final class RecorderBenchTest extends TestCase {
 		$start = hrtime( true );
 		for ( $i = 0; $i < self::RUNS; $i++ ) {
 			$record = Recorder::buildRecord( $server, $cookies, $get, $ctx, $metrics, $client, $langs );
-			$buffer->append( Record::encode( $record ), 1794564930 );
+			$line   = Record::withSelf( Record::encode( $record ), 42 );
+			$buffer->append( $line, 1794564930 );
 		}
 		$avg_ms = ( hrtime( true ) - $start ) / 1e6 / self::RUNS;
 
-		fwrite( STDERR, sprintf( "\nbuild+encode+append avg: %.4f ms over %d runs\n", $avg_ms, self::RUNS ) );
+		fwrite( STDERR, sprintf( "\nbuild+encode+self+append avg: %.4f ms over %d runs\n", $avg_ms, self::RUNS ) );
 		$this->assertLessThan( 0.15, $avg_ms );
 		$this->assertSame( 'product_cat', $record['r'] );
 	}

@@ -28,7 +28,7 @@ final class Recorder {
 	/**
 	 * Inline script that marks a browser that runs JavaScript.
 	 */
-	public const JS = 'document.cookie="bi_js=1;path=/;SameSite=Lax"+(location.protocol==="https:"?";Secure":"")';
+	public const JS = 'if(document.cookie.indexOf("bi_js=1")<0){document.cookie="bi_js=1;path=/;SameSite=Lax"+(location.protocol==="https:"?";Secure":"")}';
 
 	/**
 	 * Methods recorded as-is; anything else becomes `OTHER`.
@@ -119,12 +119,12 @@ final class Recorder {
 	}
 
 	/**
-	 * Add the JS-marker cookie script on front-end page views of browsers that lack it.
+	 * Add the JS-marker cookie script on every front-end page view.
+	 *
+	 * Not conditional on the request's own `bi_js` cookie: a page cache would store HTML without
+	 * the script for every later visitor. The script itself checks the cookie.
 	 */
 	public static function enqueueJs(): void {
-		if ( isset( $_COOKIE['bi_js'] ) && '1' === $_COOKIE['bi_js'] ) {
-			return;
-		}
 		if ( is_admin() || wp_doing_ajax() || ( defined( 'REST_REQUEST' ) && REST_REQUEST ) ) {
 			return;
 		}
@@ -174,10 +174,12 @@ final class Recorder {
 				self::langs()
 			);
 
-			// Own cost so far, measured before encode and append.
-			$record['self'] = (int) round( ( microtime( true ) - $start ) * 1e6 );
+			$record['self'] = 0;
+			$line           = Record::encode( $record );
+			// `self` covers collect, build and encode; it excludes the file write.
+			$line = Record::withSelf( $line, (int) round( ( microtime( true ) - $start ) * 1e6 ) );
 
-			( new FileBuffer( $dir ) )->append( Record::encode( $record ), $now );
+			( new FileBuffer( $dir ) )->append( $line, $now );
 		} catch ( \Throwable $e ) {
 			return;
 		}

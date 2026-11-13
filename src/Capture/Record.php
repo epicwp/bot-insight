@@ -48,7 +48,10 @@ final class Record {
 	);
 
 	/**
-	 * Record keys in their fixed order.
+	 * Record keys in their fixed order; equals `array_keys( self::TYPES )` (checked by a unit test).
+	 *
+	 * `self` (the recorder's own microseconds: collect, build and encode, not the file write) must
+	 * stay last: the recorder patches its value into the encoded line.
 	 */
 	public const KEYS = array( 'ts', 'ms', 'cpu', 'mem', 'dbq', 'st', 'unc', 'm', 'r', 'p', 'dp', 'lg', 'u', 'ref', 'ua', 'ip', 'ips', 'cdn', 'cc', 'hf', 'js', 'se', 'ca', 'or', 'pc', 'self' );
 
@@ -76,6 +79,25 @@ final class Record {
 		}
 		$json = json_encode( self::normalise( $r ), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE | JSON_PRESERVE_ZERO_FRACTION ); // phpcs:ignore WordPress.WP.AlternativeFunctions.json_encode_json_encode -- No WordPress in this class; flags are deliberate.
 		return ( false === $json ? '{}' : $json ) . "\n";
+	}
+
+	/**
+	 * Put the recorder's own cost into a line encoded with `self` = 0.
+	 *
+	 * `self` is the last key, so this swaps the trailing `"self":0}` without re-encoding. A line
+	 * that does not end that way is returned unchanged.
+	 *
+	 * @param string $line    Line from encode() with `self` = 0.
+	 * @param int    $micros  Microseconds to record.
+	 * @return string
+	 */
+	public static function withSelf( string $line, int $micros ): string {
+		$tail = "\"self\":0}\n";
+		$len  = strlen( $tail );
+		if ( substr( $line, -$len ) !== $tail ) {
+			return $line;
+		}
+		return substr( $line, 0, -$len ) . '"self":' . max( 0, $micros ) . "}\n";
 	}
 
 	/**

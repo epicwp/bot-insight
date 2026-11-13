@@ -59,6 +59,20 @@ final class RecordTest extends TestCase {
 		$this->assertSame( self::sample(), Record::decode( $line ) );
 	}
 
+	public function test_with_self_patches_the_last_key(): void {
+		$r         = self::sample();
+		$r['self'] = 0;
+		$line      = Record::withSelf( Record::encode( $r ), 1234 );
+		$r['self'] = 1234;
+		$this->assertSame( Record::encode( $r ), $line );
+		$this->assertSame( $r, Record::decode( $line ) );
+	}
+
+	public function test_with_self_leaves_other_lines_alone(): void {
+		$line = Record::encode( self::sample() );
+		$this->assertSame( $line, Record::withSelf( $line, 99 ) );
+	}
+
 	public function test_round_trip_keeps_float_type_for_whole_numbers(): void {
 		$r       = self::sample();
 		$r['ms'] = 12.0;
