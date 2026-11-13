@@ -8,6 +8,7 @@
 
 namespace BotInsight;
 
+use BotInsight\Admin\RestController;
 use BotInsight\Buffer\FileBuffer;
 use BotInsight\Capture\Recorder;
 use BotInsight\Fold\Scheduler;
@@ -64,6 +65,7 @@ final class Plugin {
 		register_deactivation_hook( $file, array( Scheduler::class, 'unregister' ) );
 		Scheduler::hooks();
 		Events::hooks();
+		RestController::hooks();
 		// Before the recorder registers, so an upgrade's buffer dir is in place.
 		add_action( 'plugins_loaded', array( self::class, 'maybeUpgrade' ), 5 );
 		add_action( 'plugins_loaded', array( Recorder::class, 'register' ) );
