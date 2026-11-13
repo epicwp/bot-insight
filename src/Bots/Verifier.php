@@ -99,6 +99,10 @@ final class Verifier {
 		if ( null === $bot ) {
 			return 0;
 		}
+		$ip = $this->normalise_ip( $ip );
+		if ( null === $ip ) {
+			return 3;
+		}
 		$verify = isset( $bot['verify'] ) && is_array( $bot['verify'] ) ? $bot['verify'] : array();
 		$ranges = ! empty( $verify['ranges'] ) && is_array( $verify['ranges'] ) ? $verify['ranges'] : array();
 		$dns    = ! empty( $verify['dns'] ) && is_array( $verify['dns'] ) ? $verify['dns'] : array();
@@ -126,8 +130,8 @@ final class Verifier {
 	 */
 	private function verify_dns( string $ip, array $suffixes ): int {
 		$cached = ( $this->cache_get )( $ip );
-		if ( 1 === $cached || 2 === $cached ) {
-			return $cached;
+		if ( null !== $cached && ( 1 === (int) $cached || 2 === (int) $cached ) ) {
+			return (int) $cached;
 		}
 		$is_v6 = false !== strpos( $ip, ':' );
 		if ( $is_v6 && null === $this->forward6 ) {
@@ -162,7 +166,33 @@ final class Verifier {
 		}
 		$forward = $is_v6 ? $this->forward6 : $this->forward;
 		$addrs   = $forward( $host );
-		return is_array( $addrs ) && in_array( $ip, $addrs, true );
+		if ( ! is_array( $addrs ) ) {
+			return false;
+		}
+		foreach ( $addrs as $addr ) {
+			if ( $this->normalise_ip( (string) $addr ) === $ip ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Canonical text form of an IP: IPv4-mapped IPv6 becomes IPv4, IPv6 is compressed lowercase.
+	 *
+	 * @param string $ip Raw IP.
+	 * @return string|null Null when invalid.
+	 */
+	private function normalise_ip( string $ip ): ?string {
+		$bin = @inet_pton( trim( $ip ) ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- invalid input is expected.
+		if ( false === $bin ) {
+			return null;
+		}
+		if ( 16 === strlen( $bin ) && substr( $bin, 0, 12 ) === str_repeat( "\0", 10 ) . "\xff\xff" ) {
+			$bin = substr( $bin, 12 );
+		}
+		$out = inet_ntop( $bin );
+		return false === $out ? null : $out;
 	}
 
 	/**
@@ -174,13 +204,16 @@ final class Verifier {
 	 */
 	private function suffix_matches( string $host, array $suffixes ): bool {
 		foreach ( $suffixes as $suffix ) {
-			$suffix = strtolower( (string) $suffix );
-			$bare   = ltrim( $suffix, '.' );
+			$bare   = ltrim( strtolower( (string) $suffix ), '.' );
+			$suffix = '.' . $bare;
+			if ( '' === $bare ) {
+				continue;
+			}
 			if ( $host === $bare ) {
 				return true;
 			}
 			$len = strlen( $suffix );
-			if ( $len > 0 && strlen( $host ) > $len && substr( $host, -$len ) === $suffix ) {
+			if ( strlen( $host ) > $len && substr( $host, -$len ) === $suffix ) {
 				return true;
 			}
 		}

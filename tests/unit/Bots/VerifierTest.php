@@ -41,7 +41,7 @@ final class VerifierTest extends TestCase {
 				$this->log[] = 'f:' . $host;
 				return $fwd[ $host ] ?? false;
 			},
-			function ( string $ip ): ?int {
+			function ( string $ip ) {
 				return $this->cache[ $ip ] ?? null;
 			},
 			function ( string $ip, int $result ): void {
@@ -166,5 +166,54 @@ final class VerifierTest extends TestCase {
 		$v   = $this->verifier( array( '2001:db8::1' => 'a.googlebot.com' ), array(), 50, array( 'a.googlebot.com' => array( '2001:db8::1' ) ) );
 		$this->assertSame( 1, $v->verify( $bot, '2001:db8::1' ) );
 		$this->assertSame( array( 'r:2001:db8::1', 'f6:a.googlebot.com' ), $this->log );
+	}
+
+	public function test_ipv6_forms_are_normalised(): void {
+		$bot = $this->bot( null, array( '.googlebot.com' ) );
+		$v   = $this->verifier( array( '2001:db8::1' => 'a.googlebot.com' ), array(), 50, array( 'a.googlebot.com' => array( '2001:db8::1' ) ) );
+		$this->assertSame( 1, $v->verify( $bot, '2001:0DB8:0000:0000:0000:0000:0000:0001' ) );
+		$this->assertSame( 1, $this->cache['2001:db8::1'] );
+	}
+
+	public function test_forward_results_are_normalised(): void {
+		$bot = $this->bot( null, array( '.googlebot.com' ) );
+		$v   = $this->verifier( array( '2001:db8::1' => 'a.googlebot.com' ), array(), 50, array( 'a.googlebot.com' => array( '2001:0DB8::0001' ) ) );
+		$this->assertSame( 1, $v->verify( $bot, '2001:db8::1' ) );
+	}
+
+	public function test_mapped_ipv4_uses_ipv4_forward(): void {
+		$bot = $this->bot( null, array( '.googlebot.com' ) );
+		$v   = $this->verifier( array( '192.0.2.5' => 'a.googlebot.com' ), array( 'a.googlebot.com' => array( '192.0.2.5' ) ) );
+		$this->assertSame( 1, $v->verify( $bot, '::ffff:192.0.2.5' ) );
+		$this->assertSame( array( 'r:192.0.2.5', 'f:a.googlebot.com' ), $this->log );
+	}
+
+	public function test_ipv6_forward_mismatch_and_false_are_two(): void {
+		$bot = $this->bot( null, array( '.googlebot.com' ) );
+		$v   = $this->verifier( array( '2001:db8::1' => 'a.googlebot.com' ), array(), 50, array( 'a.googlebot.com' => array( '2001:db8::2' ) ) );
+		$this->assertSame( 2, $v->verify( $bot, '2001:db8::1' ) );
+		$v = $this->verifier( array( '2001:db8::1' => 'a.googlebot.com' ), array(), 50, array() );
+		$this->assertSame( 2, $v->verify( $bot, '2001:db8::1' ) );
+	}
+
+	public function test_invalid_ip_is_three(): void {
+		$bot = $this->bot( null, array( '.googlebot.com' ) );
+		$this->assertSame( 3, $this->verifier()->verify( $bot, 'not-an-ip' ) );
+		$this->assertSame( array(), $this->log );
+	}
+
+	public function test_suffix_without_leading_dot_is_normalised(): void {
+		$bot = $this->bot( null, array( 'googlebot.com' ) );
+		$v   = $this->verifier( array( '192.0.2.5' => 'evilgooglebot.com' ), array( 'evilgooglebot.com' => array( '192.0.2.5' ) ) );
+		$this->assertSame( 2, $v->verify( $bot, '192.0.2.5' ) );
+		$v = $this->verifier( array( '192.0.2.5' => 'a.googlebot.com' ), array( 'a.googlebot.com' => array( '192.0.2.5' ) ) );
+		$this->assertSame( 1, $v->verify( $bot, '192.0.2.5' ) );
+	}
+
+	public function test_string_cache_values_count_as_hits(): void {
+		$bot = $this->bot( null, array( '.googlebot.com' ) );
+		$v   = $this->verifier( array(), array(), 0 );
+		$this->cache['192.0.2.5'] = '1';
+		$this->assertSame( 1, $v->verify( $bot, '192.0.2.5' ) );
 	}
 }
