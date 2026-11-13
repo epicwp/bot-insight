@@ -21,3 +21,6 @@ build-check/
 
 # Local ddev WordPress site for Plugin Check and benchmarks
 .wp-dev/
+
+# Local browser-automation output
+.playwright-mcp/
