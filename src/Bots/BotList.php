@@ -131,6 +131,15 @@ final class BotList {
 	}
 
 	/**
+	 * All entries in file order.
+	 *
+	 * @return array<int,array<string,mixed>>
+	 */
+	public function all(): array {
+		return $this->bots;
+	}
+
+	/**
 	 * List version, e.g. `2026.11.1`.
 	 */
 	public function version(): string {
