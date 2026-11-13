@@ -109,6 +109,8 @@ final class AggregatorTest extends TestCase {
 		foreach ( Aggregator::DIMENSIONS as $d ) {
 			$vals[ $d ] = $r[ $d ];
 		}
+		// The key hashes the raw parameter signature, not its dictionary id.
+		$vals['param_sig_id'] = '';
 		$this->assertSame( Aggregator::dimsKey( $vals ), $r['dims'] );
 		$this->assertSame( md5( implode( "\x1f", array_values( $vals ) ), true ), $r['dims'] );
 	}
@@ -150,6 +152,39 @@ final class AggregatorTest extends TestCase {
 		$this->assertCount( 250, $out['dims'] );
 		$this->assertSame( $over[0]['dims'], $out['dims'][0] );
 		$this->assertNotSame( $over[0]['dims'], $out['dims'][249] );
+	}
+
+	public function test_only_kept_combos_intern_their_parameter_signature(): void {
+		$calls = array();
+		$dict  = function ( string $type, string $value ) use ( &$calls ): int {
+			$calls[] = $type . ':' . $value;
+			return count( $calls );
+		};
+		$rows  = array();
+		for ( $i = 1; $i <= 3; $i++ ) {
+			$rows[] = $this->row( array( 'p' => 'rnd' . $i, 'ms' => (float) $i, 'bot' => '' ) );
+		}
+		$slots = array( self::HOUR => array( 'count' => 198, 'keys' => array() ) );
+		$out   = Aggregator::aggregate( $rows, $dict, $slots );
+
+		// Two free slots: the two most expensive signatures are kept and interned, the third goes
+		// to the overflow row (param_sig_id 0) without a dictionary entry.
+		$this->assertSame( array( 'param_sig:rnd3', 'param_sig:rnd2' ), $calls );
+		$ids = array_column( $out['rows'], 'param_sig_id', 'route' );
+		$this->assertSame( 0, $ids['other'] );
+		$this->assertCount( 3, $out['rows'] );
+	}
+
+	public function test_dims_key_does_not_depend_on_dictionary_ids(): void {
+		$a = Aggregator::aggregate( array( $this->row( array( 'p' => 'orderby' ) ) ), $this->dict(), array() );
+		$b = Aggregator::aggregate(
+			array( $this->row( array( 'p' => 'orderby' ) ) ),
+			static function ( string $type ): int {
+				return 'param_sig' === $type ? 999 : 1;
+			},
+			array()
+		);
+		$this->assertSame( $a['rows'][0]['dims'], $b['rows'][0]['dims'] );
 	}
 
 	public function test_existing_combo_updates_when_hour_is_full(): void {

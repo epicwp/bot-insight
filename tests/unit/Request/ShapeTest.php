@@ -32,7 +32,7 @@ final class ShapeTest extends TestCase {
 
 	public function test_param_names_cleaning(): void {
 		$this->assertSame(
-			'0,5,a[b],abc',
+			'#,a[b],abc',
 			Shape::paramNames(
 				array(
 					'A[b]'     => 1,
@@ -57,6 +57,40 @@ final class ShapeTest extends TestCase {
 				)
 			)
 		);
+	}
+
+	public function test_random_names_collapse_to_one_placeholder(): void {
+		$this->assertSame(
+			'#,orderby',
+			Shape::paramNames(
+				array(
+					'1699999999'                       => 1,
+					'42'                               => 1,
+					'5f2b9c0d8e7a6b1c'                 => 1,
+					'deadbeefcafebabe00'               => 1,
+					'q2fvbgxvd29ybgqgzm9vyMFyYmF6'     => 1,
+					'ORDERBY'                          => 1,
+				)
+			)
+		);
+	}
+
+	public function test_long_names_with_separators_or_without_digits_are_kept(): void {
+		$this->assertSame(
+			'add-to-cart,filter_product_brand,utm_source_platform,woocommercecheckout',
+			Shape::paramNames(
+				array(
+					'utm_source_platform'  => 1,
+					'filter_product_brand' => 1,
+					'woocommercecheckout'  => 1,
+					'add-to-cart'          => 1,
+				)
+			)
+		);
+	}
+
+	public function test_short_alphanumeric_names_are_kept(): void {
+		$this->assertSame( 'p2,utm2', Shape::paramNames( array( 'p2' => 1, 'utm2' => 1 ) ) ); // phpcs:ignore WordPress.Arrays.ArrayDeclarationSpacing.AssociativeArrayFound
 	}
 
 	public function test_500_params_give_20_names(): void {

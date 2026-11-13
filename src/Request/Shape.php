@@ -59,7 +59,14 @@ final class Shape {
 	);
 
 	/**
-	 * Comma-separated, cleaned, sorted query parameter names (never values).
+	 * Placeholder for parameter names that look random (cache busters, ids, tokens).
+	 */
+	public const RANDOM_NAME = '#';
+
+	/**
+	 * Comma-separated, cleaned, sorted query parameter names (never values). Names that are all
+	 * digits, or 16 or more letters and digits without a separator that look like hex or base64
+	 * (any digit, or hex only), collapse to `#`, so random names do not each make a new signature.
 	 *
 	 * @param array<int|string, mixed> $get A $_GET-like array.
 	 * @return string
@@ -70,6 +77,9 @@ final class Shape {
 			$name = (string) preg_replace( '/[^a-z0-9_\-\[\]]+/', '', strtolower( (string) $key ) );
 			if ( '' === $name ) {
 				continue;
+			}
+			if ( ctype_digit( $name ) || ( strlen( $name ) >= 16 && ctype_alnum( $name ) && ( 1 === preg_match( '/\d/', $name ) || ctype_xdigit( $name ) ) ) ) {
+				$name = self::RANDOM_NAME;
 			}
 			$name           = substr( $name, 0, self::MAX_NAME_LENGTH );
 			$names[ $name ] = true;

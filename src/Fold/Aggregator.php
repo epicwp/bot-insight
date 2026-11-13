@@ -37,7 +37,8 @@ final class Aggregator {
 	);
 
 	/**
-	 * Raw 16-byte key for a dimension tuple.
+	 * Raw 16-byte key for a dimension tuple. The aggregator passes the raw parameter signature in
+	 * `param_sig_id` (0 for overflow rows), so keys never depend on dictionary ids.
 	 *
 	 * @param array<string, mixed> $dimension_values Dimension values keyed by column name.
 	 * @return string
@@ -69,7 +70,8 @@ final class Aggregator {
 				'client_class'    => (string) $row['class'],
 				'bot_id'          => '' === (string) $row['bot'] ? 0 : (int) $dict_id( 'bot', (string) $row['bot'] ),
 				'route'           => (string) $row['r'],
-				'param_sig_id'    => '' === (string) $row['p'] ? 0 : (int) $dict_id( 'param_sig', (string) $row['p'] ),
+				// The raw signature until the guard has decided; interned only for kept combos.
+				'param_sig_id'    => (string) $row['p'],
 				'lang'            => (string) $row['lg'],
 				'country'         => (string) $row['country'],
 				'asn_type'        => (string) $row['asn_type'],
@@ -140,6 +142,10 @@ final class Aggregator {
 		$out = array();
 		foreach ( $final as $hour => $combos ) {
 			foreach ( $combos as $key => $acc ) {
+				$sig = $acc['dim']['param_sig_id'];
+				if ( is_string( $sig ) ) {
+					$acc['dim']['param_sig_id'] = '' === $sig ? 0 : (int) $dict_id( 'param_sig', $sig );
+				}
 				$out[] = self::toRow( $hour, (string) $key, $acc );
 			}
 		}

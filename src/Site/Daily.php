@@ -9,6 +9,7 @@
 namespace BotInsight\Site;
 
 use BotInsight\Buffer\FileBuffer;
+use BotInsight\Fold\Folder;
 use BotInsight\Fold\SampleRate;
 use BotInsight\Geo\GeoUpdater;
 use BotInsight\Net\IpRanges;
@@ -21,8 +22,9 @@ use BotInsight\Storage\Schema;
 
 /**
  * Runs once a day (00:10 UTC): language option, snapshot of yesterday with change events,
- * retention, sample rate, opt-in range refresh and opt-in GeoIP refresh. Every step runs on its
- * own; a failing step is recorded in `bot_insight_daily_status` and the others still run.
+ * retention, dictionary prune, sample rate, opt-in range refresh and opt-in GeoIP refresh. Every
+ * step runs on its own; a failing step is recorded in `bot_insight_daily_status` and the others
+ * still run.
  * Idempotent per day.
  */
 final class Daily {
@@ -109,6 +111,9 @@ final class Daily {
 			'retention'   => function () use ( $now ) {
 				$this->retention( $now );
 				return true;
+			},
+			'dict_prune'  => function () {
+				return $this->pruneDictionary();
 			},
 			'sample_rate' => function () use ( $day ) {
 				return $this->sampleRate( $day );
@@ -232,6 +237,39 @@ final class Daily {
 		$this->deleteBatched( "DELETE FROM {$t['snapshot']} WHERE day < %s LIMIT " . self::BATCH, $date );
 		$this->deleteBatched( "DELETE FROM {$t['events']} WHERE ts < %d LIMIT " . self::BATCH, $cutoff );
 		$this->deleteBatched( "DELETE FROM {$t['sample']} WHERE ts < %d LIMIT " . self::BATCH, $now - Reports::SAMPLE_DAYS * DAY_IN_SECONDS );
+	}
+
+	/**
+	 * Delete dictionary values that no hourly or sample row references any more: parameter
+	 * signatures, URL patterns and user agent families. Bots and network names are bounded and stay.
+	 * Runs under the fold lock, so a fold never writes an id that is being deleted.
+	 *
+	 * @return bool False when a fold holds the lock (nothing was deleted).
+	 * @throws \RuntimeException When a statement fails.
+	 */
+	private function pruneDictionary(): bool {
+		$t    = Schema::tables();
+		$lock = Folder::lockName( $this->wpdb );
+		if ( '1' !== (string) $this->wpdb->get_var( $this->wpdb->prepare( 'SELECT GET_LOCK(%s, 0)', $lock ) ) ) {
+			return false;
+		}
+		try {
+			$refs = array(
+				'param_sig'   => array( "SELECT param_sig_id FROM {$t['hourly']}", "SELECT param_sig_id FROM {$t['sample']}" ),
+				'url_pattern' => array( "SELECT url_pattern_id FROM {$t['sample']}" ),
+				'ua_family'   => array( "SELECT ua_family_id FROM {$t['sample']}" ),
+			);
+			foreach ( $refs as $type => $selects ) {
+				$where = '';
+				foreach ( $selects as $select ) {
+					$where .= " AND id NOT IN ({$select})";
+				}
+				$this->deleteBatched( "DELETE FROM {$t['dict']} WHERE type = %s{$where} LIMIT " . self::BATCH, $type );
+			}
+		} finally {
+			$this->wpdb->query( $this->wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock ) );
+		}
+		return true;
 	}
 
 	/**

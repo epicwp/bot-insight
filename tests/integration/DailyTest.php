@@ -9,6 +9,7 @@
 namespace BotInsight\Tests\Integration;
 
 use BotInsight\Buffer\FileBuffer;
+use BotInsight\Fold\Folder;
 use BotInsight\Net\IpRanges;
 use BotInsight\Net\RangeUpdater;
 use BotInsight\Plugin;
@@ -16,6 +17,7 @@ use BotInsight\Site\Daily;
 use BotInsight\Site\Events;
 use BotInsight\Site\Langs;
 use BotInsight\Site\Snapshot;
+use BotInsight\Storage\Dictionary;
 use BotInsight\Storage\Schema;
 
 final class DailyTest extends \WP_UnitTestCase {
@@ -94,6 +96,65 @@ final class DailyTest extends \WP_UnitTestCase {
 		$this->assertSame( gmdate( 'Y-m-d', $new ), $wpdb->get_var( "SELECT MIN(day) FROM {$t['snapshot']}" ) );
 		$this->assertSame( '1', $wpdb->get_var( "SELECT COUNT(*) FROM {$t['sample']}" ) );
 		$this->assertSame( array( 'new' ), $wpdb->get_col( "SELECT subject FROM {$t['events']} WHERE type = 'note'" ) );
+	}
+
+	public function test_dictionary_prune_drops_unreferenced_signatures_patterns_and_families(): void {
+		global $wpdb;
+		$t    = Schema::tables();
+		$dict = new Dictionary( $wpdb );
+		$ids  = array(
+			'sig_hourly'  => $dict->id( 'param_sig', 'orderby' ),
+			'sig_sample'  => $dict->id( 'param_sig', 'add-to-cart' ),
+			'sig_gone'    => $dict->id( 'param_sig', 'rnd123' ),
+			'url_sample'  => $dict->id( 'url_pattern', '/shop/{slug}/' ),
+			'url_gone'    => $dict->id( 'url_pattern', '/old/{id}/' ),
+			'ua_sample'   => $dict->id( 'ua_family', 'Chrome 140' ),
+			'ua_gone'     => $dict->id( 'ua_family', 'Chrome 90' ),
+			'bot_unused'  => $dict->id( 'bot', 'gptbot' ),
+			'asn_unused'  => $dict->id( 'asn_org', 'Example Net' ),
+		);
+		$wpdb->insert(
+			$t['hourly'],
+			array(
+				'hour'         => self::NOW - 2 * DAY_IN_SECONDS,
+				'dims'         => md5( 'p', true ),
+				'param_sig_id' => $ids['sig_hourly'],
+			)
+		);
+		$wpdb->insert(
+			$t['sample'],
+			array(
+				'ts'             => self::NOW - DAY_IN_SECONDS,
+				'param_sig_id'   => $ids['sig_sample'],
+				'url_pattern_id' => $ids['url_sample'],
+				'ua_family_id'   => $ids['ua_sample'],
+			)
+		);
+
+		( new Daily( $wpdb ) )->run( self::NOW );
+
+		$left = array_map( 'intval', $wpdb->get_col( "SELECT id FROM {$t['dict']}" ) ); // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		sort( $left );
+		$keep = array( $ids['sig_hourly'], $ids['sig_sample'], $ids['url_sample'], $ids['ua_sample'], $ids['bot_unused'], $ids['asn_unused'] );
+		sort( $keep );
+		$this->assertSame( $keep, $left );
+		$this->assertSame( 'ok', get_option( Daily::STATUS_OPTION )['steps']['dict_prune'] );
+	}
+
+	public function test_dictionary_prune_waits_while_a_fold_runs(): void {
+		global $wpdb;
+		$id    = ( new Dictionary( $wpdb ) )->id( 'param_sig', 'rnd123' );
+		$other = new \wpdb( DB_USER, DB_PASSWORD, DB_NAME, DB_HOST );
+		$other->set_prefix( $wpdb->prefix );
+		$this->assertSame( '1', $other->get_var( $other->prepare( 'SELECT GET_LOCK(%s, 0)', Folder::lockName( $wpdb ) ) ) );
+		try {
+			( new Daily( $wpdb ) )->run( self::NOW );
+		} finally {
+			$other->query( $other->prepare( 'SELECT RELEASE_LOCK(%s)', Folder::lockName( $wpdb ) ) );
+		}
+
+		$this->assertSame( 'skipped', get_option( Daily::STATUS_OPTION )['steps']['dict_prune'] );
+		$this->assertSame( (string) $id, $wpdb->get_var( 'SELECT id FROM ' . Schema::tables()['dict'] ) ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 	}
 
 	public function test_retention_follows_the_setting(): void {
