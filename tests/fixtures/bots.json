@@ -1,0 +1,15 @@
+{
+    "version": "test",
+    "current_majors": { "chrome": 140, "edge": 140, "firefox": 140, "safari": 26 },
+    "bots": [
+        {
+            "id": "googlebot",
+            "name": "Googlebot",
+            "patterns": ["Googlebot"],
+            "class": "search",
+            "owner": "Google",
+            "verify": { "ranges": ["test-v4"], "dns": [".googlebot.com"] },
+            "findability": true
+        }
+    ]
+}
