@@ -58,8 +58,9 @@ final class Plugin {
 	public static function boot( string $file ): void {
 		self::$cpu_start = Recorder::cpuMicros();
 
-		// Only the direct-download zip ships the updater and its library.
-		if ( class_exists( Updater::class ) ) {
+		// Only the direct-download zip ships the updater and its library. It is only needed where
+		// WordPress checks or shows updates, so visitor requests never build it.
+		if ( self::wantsUpdater() && class_exists( Updater::class ) ) {
 			Updater::register( $file );
 		}
 
@@ -75,6 +76,13 @@ final class Plugin {
 		add_action( 'plugins_loaded', array( Recorder::class, 'register' ) );
 		add_action( 'admin_init', array( self::class, 'addPrivacyPolicyContent' ) );
 		add_action( 'before_woocommerce_init', array( self::class, 'declareWooCompatibility' ) );
+	}
+
+	/**
+	 * Whether this request may check or show updates: admin screens, cron and WP-CLI.
+	 */
+	public static function wantsUpdater(): bool {
+		return is_admin() || wp_doing_cron() || ( defined( 'WP_CLI' ) && WP_CLI );
 	}
 
 	/**

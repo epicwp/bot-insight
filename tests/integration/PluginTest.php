@@ -17,6 +17,19 @@ final class PluginTest extends \WP_UnitTestCase {
 		$this->assertNotFalse( has_action( 'before_woocommerce_init', array( Plugin::class, 'declareWooCompatibility' ) ) );
 	}
 
+	public function test_updater_is_wanted_only_in_admin_cron_and_cli(): void {
+		set_current_screen( 'front' );
+		$this->assertFalse( Plugin::wantsUpdater(), 'front end' );
+
+		set_current_screen( 'dashboard' );
+		$this->assertTrue( Plugin::wantsUpdater(), 'admin' );
+		set_current_screen( 'front' );
+
+		add_filter( 'wp_doing_cron', '__return_true' );
+		$this->assertTrue( Plugin::wantsUpdater(), 'cron' );
+		remove_filter( 'wp_doing_cron', '__return_true' );
+	}
+
 	public function test_privacy_policy_content_describes_storage_and_cookie(): void {
 		require_once ABSPATH . 'wp-admin/includes/class-wp-privacy-policy-content.php';
 		$store = new \ReflectionProperty( \WP_Privacy_Policy_Content::class, 'policy_content' );
