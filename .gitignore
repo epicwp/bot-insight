@@ -5,3 +5,19 @@ node_modules/
 
 # Private notes (client field findings), never committed
 .private/
+
+# Local agent workspaces
+.superpowers/
+.worktrees/
+
+# Build and test artefacts
+dist/
+.phpunit.result.cache
+build/
+build-check/
+
+# WordPress core and config for integration tests (bin/install-wp-tests.sh)
+.wp-tests/
+
+# Local ddev WordPress site for Plugin Check and benchmarks
+.wp-dev/

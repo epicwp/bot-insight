@@ -1,0 +1,815 @@
+{
+    "version": "2026.11.1",
+    "current_majors": {
+        "chrome": 158,
+        "edge": 157,
+        "firefox": 160,
+        "safari": 27
+    },
+    "notes": "Anthropic publishes outbound IP ranges and no reverse-DNS scheme that could be verified at fetch time, so verify is null for its bots. Majors checked 2026-11-13 (Chrome, Edge, Firefox from vendor APIs; Safari estimated). All range URLs in bin/update-ranges.php responded.",
+    "bots": [
+        {
+            "id": "googlebot-image",
+            "name": "Googlebot-Image",
+            "patterns": [
+                "Googlebot-Image"
+            ],
+            "class": "search",
+            "owner": "Google",
+            "verify": {
+                "ranges": [
+                    "google"
+                ],
+                "dns": [
+                    ".googlebot.com",
+                    ".google.com"
+                ]
+            },
+            "findability": true
+        },
+        {
+            "id": "googlebot-video",
+            "name": "Googlebot-Video",
+            "patterns": [
+                "Googlebot-Video"
+            ],
+            "class": "search",
+            "owner": "Google",
+            "verify": {
+                "ranges": [
+                    "google"
+                ],
+                "dns": [
+                    ".googlebot.com",
+                    ".google.com"
+                ]
+            },
+            "findability": true
+        },
+        {
+            "id": "google-inspectiontool",
+            "name": "Google-InspectionTool",
+            "patterns": [
+                "Google-InspectionTool"
+            ],
+            "class": "search",
+            "owner": "Google",
+            "verify": {
+                "ranges": [
+                    "google"
+                ],
+                "dns": [
+                    ".googlebot.com",
+                    ".google.com"
+                ]
+            },
+            "findability": true
+        },
+        {
+            "id": "google-cloudvertexbot",
+            "name": "Google-CloudVertexBot",
+            "patterns": [
+                "Google-CloudVertexBot"
+            ],
+            "class": "ai_training",
+            "owner": "Google",
+            "verify": {
+                "ranges": [
+                    "google"
+                ],
+                "dns": [
+                    ".googlebot.com",
+                    ".google.com"
+                ]
+            },
+            "findability": false
+        },
+        {
+            "id": "googleother",
+            "name": "GoogleOther",
+            "patterns": [
+                "GoogleOther"
+            ],
+            "class": "unknown_bot",
+            "owner": "Google",
+            "verify": {
+                "ranges": [
+                    "google"
+                ],
+                "dns": [
+                    ".googlebot.com",
+                    ".google.com"
+                ]
+            },
+            "findability": false
+        },
+        {
+            "id": "adsbot-google",
+            "name": "AdsBot-Google",
+            "patterns": [
+                "AdsBot-Google"
+            ],
+            "class": "search",
+            "owner": "Google",
+            "verify": {
+                "ranges": [
+                    "google"
+                ],
+                "dns": [
+                    ".googlebot.com",
+                    ".google.com"
+                ]
+            },
+            "findability": true
+        },
+        {
+            "id": "mediapartners-google",
+            "name": "Mediapartners-Google",
+            "patterns": [
+                "Mediapartners-Google"
+            ],
+            "class": "search",
+            "owner": "Google",
+            "verify": {
+                "ranges": [
+                    "google"
+                ],
+                "dns": [
+                    ".googlebot.com",
+                    ".google.com"
+                ]
+            },
+            "findability": true
+        },
+        {
+            "id": "feedfetcher-google",
+            "name": "FeedFetcher-Google",
+            "patterns": [
+                "FeedFetcher-Google"
+            ],
+            "class": "feed",
+            "owner": "Google",
+            "verify": {
+                "ranges": [
+                    "google"
+                ],
+                "dns": [
+                    ".googlebot.com",
+                    ".google.com"
+                ]
+            },
+            "findability": false
+        },
+        {
+            "id": "googlebot",
+            "name": "Googlebot",
+            "patterns": [
+                "Googlebot"
+            ],
+            "class": "search",
+            "owner": "Google",
+            "verify": {
+                "ranges": [
+                    "google"
+                ],
+                "dns": [
+                    ".googlebot.com",
+                    ".google.com"
+                ]
+            },
+            "findability": true
+        },
+        {
+            "id": "bingbot",
+            "name": "Bingbot",
+            "patterns": [
+                "bingbot"
+            ],
+            "class": "search",
+            "owner": "Microsoft",
+            "verify": {
+                "ranges": [
+                    "bing"
+                ],
+                "dns": [
+                    ".search.msn.com"
+                ]
+            },
+            "findability": true
+        },
+        {
+            "id": "applebot",
+            "name": "Applebot",
+            "patterns": [
+                "Applebot"
+            ],
+            "class": "search",
+            "owner": "Apple",
+            "verify": {
+                "ranges": [
+                    "apple"
+                ],
+                "dns": [
+                    ".applebot.apple.com"
+                ]
+            },
+            "findability": true
+        },
+        {
+            "id": "duckduckbot",
+            "name": "DuckDuckBot",
+            "patterns": [
+                "DuckDuckBot"
+            ],
+            "class": "search",
+            "owner": "DuckDuckGo",
+            "verify": {
+                "ranges": null,
+                "dns": null
+            },
+            "findability": true
+        },
+        {
+            "id": "yandexbot",
+            "name": "YandexBot",
+            "patterns": [
+                "YandexBot",
+                "YandexImages"
+            ],
+            "class": "search",
+            "owner": "Yandex",
+            "verify": {
+                "ranges": null,
+                "dns": [
+                    ".yandex.ru",
+                    ".yandex.net",
+                    ".yandex.com"
+                ]
+            },
+            "findability": true
+        },
+        {
+            "id": "baiduspider",
+            "name": "Baiduspider",
+            "patterns": [
+                "Baiduspider"
+            ],
+            "class": "search",
+            "owner": "Baidu",
+            "verify": {
+                "ranges": null,
+                "dns": [
+                    ".baidu.com",
+                    ".baidu.jp"
+                ]
+            },
+            "findability": true
+        },
+        {
+            "id": "oai-searchbot",
+            "name": "OAI-SearchBot",
+            "patterns": [
+                "OAI-SearchBot"
+            ],
+            "class": "ai_search",
+            "owner": "OpenAI",
+            "verify": {
+                "ranges": [
+                    "openai-searchbot"
+                ],
+                "dns": null
+            },
+            "findability": true
+        },
+        {
+            "id": "chatgpt-user",
+            "name": "ChatGPT-User",
+            "patterns": [
+                "ChatGPT-User"
+            ],
+            "class": "ai_assistant",
+            "owner": "OpenAI",
+            "verify": {
+                "ranges": [
+                    "openai-chatgpt-user"
+                ],
+                "dns": null
+            },
+            "findability": true
+        },
+        {
+            "id": "gptbot",
+            "name": "GPTBot",
+            "patterns": [
+                "GPTBot"
+            ],
+            "class": "ai_training",
+            "owner": "OpenAI",
+            "verify": {
+                "ranges": [
+                    "openai-gptbot"
+                ],
+                "dns": null
+            },
+            "findability": false
+        },
+        {
+            "id": "claude-searchbot",
+            "name": "Claude-SearchBot",
+            "patterns": [
+                "Claude-SearchBot"
+            ],
+            "class": "ai_search",
+            "owner": "Anthropic",
+            "verify": {
+                "ranges": null,
+                "dns": null
+            },
+            "findability": true
+        },
+        {
+            "id": "claude-user",
+            "name": "Claude-User",
+            "patterns": [
+                "Claude-User"
+            ],
+            "class": "ai_assistant",
+            "owner": "Anthropic",
+            "verify": {
+                "ranges": null,
+                "dns": null
+            },
+            "findability": true
+        },
+        {
+            "id": "claudebot",
+            "name": "ClaudeBot",
+            "patterns": [
+                "ClaudeBot"
+            ],
+            "class": "ai_training",
+            "owner": "Anthropic",
+            "verify": {
+                "ranges": null,
+                "dns": null
+            },
+            "findability": false
+        },
+        {
+            "id": "anthropic-ai",
+            "name": "anthropic-ai",
+            "patterns": [
+                "anthropic-ai"
+            ],
+            "class": "ai_training",
+            "owner": "Anthropic",
+            "verify": {
+                "ranges": null,
+                "dns": null
+            },
+            "findability": false
+        },
+        {
+            "id": "perplexity-user",
+            "name": "Perplexity-User",
+            "patterns": [
+                "Perplexity-User"
+            ],
+            "class": "ai_assistant",
+            "owner": "Perplexity",
+            "verify": {
+                "ranges": [
+                    "perplexity-user"
+                ],
+                "dns": null
+            },
+            "findability": true
+        },
+        {
+            "id": "perplexitybot",
+            "name": "PerplexityBot",
+            "patterns": [
+                "PerplexityBot"
+            ],
+            "class": "ai_search",
+            "owner": "Perplexity",
+            "verify": {
+                "ranges": [
+                    "perplexity-bot"
+                ],
+                "dns": null
+            },
+            "findability": true
+        },
+        {
+            "id": "meta-externalagent",
+            "name": "meta-externalagent",
+            "patterns": [
+                "meta-externalagent"
+            ],
+            "class": "ai_training",
+            "owner": "Meta",
+            "verify": {
+                "ranges": null,
+                "dns": null
+            },
+            "findability": false
+        },
+        {
+            "id": "meta-externalfetcher",
+            "name": "meta-externalfetcher",
+            "patterns": [
+                "meta-externalfetcher"
+            ],
+            "class": "ai_assistant",
+            "owner": "Meta",
+            "verify": {
+                "ranges": null,
+                "dns": null
+            },
+            "findability": true
+        },
+        {
+            "id": "facebookexternalhit",
+            "name": "facebookexternalhit",
+            "patterns": [
+                "facebookexternalhit",
+                "facebot"
+            ],
+            "class": "social",
+            "owner": "Meta",
+            "verify": {
+                "ranges": null,
+                "dns": null
+            },
+            "findability": false
+        },
+        {
+            "id": "amazonbot",
+            "name": "Amazonbot",
+            "patterns": [
+                "Amazonbot"
+            ],
+            "class": "ai_training",
+            "owner": "Amazon",
+            "verify": {
+                "ranges": null,
+                "dns": null
+            },
+            "findability": false
+        },
+        {
+            "id": "bytespider",
+            "name": "Bytespider",
+            "patterns": [
+                "Bytespider"
+            ],
+            "class": "ai_training",
+            "owner": "ByteDance",
+            "verify": {
+                "ranges": null,
+                "dns": null
+            },
+            "findability": false
+        },
+        {
+            "id": "ccbot",
+            "name": "CCBot",
+            "patterns": [
+                "CCBot"
+            ],
+            "class": "ai_training",
+            "owner": "Common Crawl",
+            "verify": {
+                "ranges": null,
+                "dns": null
+            },
+            "findability": false
+        },
+        {
+            "id": "ahrefsbot",
+            "name": "AhrefsBot",
+            "patterns": [
+                "AhrefsBot"
+            ],
+            "class": "seo",
+            "owner": "Ahrefs",
+            "verify": {
+                "ranges": null,
+                "dns": null
+            },
+            "findability": false
+        },
+        {
+            "id": "semrushbot",
+            "name": "SemrushBot",
+            "patterns": [
+                "SemrushBot"
+            ],
+            "class": "seo",
+            "owner": "Semrush",
+            "verify": {
+                "ranges": null,
+                "dns": null
+            },
+            "findability": false
+        },
+        {
+            "id": "mj12bot",
+            "name": "MJ12bot",
+            "patterns": [
+                "MJ12bot"
+            ],
+            "class": "seo",
+            "owner": "Majestic",
+            "verify": {
+                "ranges": null,
+                "dns": null
+            },
+            "findability": false
+        },
+        {
+            "id": "dotbot",
+            "name": "DotBot",
+            "patterns": [
+                "DotBot"
+            ],
+            "class": "seo",
+            "owner": "Moz",
+            "verify": {
+                "ranges": null,
+                "dns": null
+            },
+            "findability": false
+        },
+        {
+            "id": "dataforseobot",
+            "name": "DataForSeoBot",
+            "patterns": [
+                "DataForSeoBot"
+            ],
+            "class": "seo",
+            "owner": "DataForSEO",
+            "verify": {
+                "ranges": null,
+                "dns": null
+            },
+            "findability": false
+        },
+        {
+            "id": "blexbot",
+            "name": "BLEXBot",
+            "patterns": [
+                "BLEXBot"
+            ],
+            "class": "seo",
+            "owner": "WebMeUp",
+            "verify": {
+                "ranges": null,
+                "dns": null
+            },
+            "findability": false
+        },
+        {
+            "id": "petalbot",
+            "name": "PetalBot",
+            "patterns": [
+                "PetalBot"
+            ],
+            "class": "unknown_bot",
+            "owner": "Huawei",
+            "verify": {
+                "ranges": null,
+                "dns": null
+            },
+            "findability": false
+        },
+        {
+            "id": "twitterbot",
+            "name": "Twitterbot",
+            "patterns": [
+                "Twitterbot"
+            ],
+            "class": "social",
+            "owner": "X",
+            "verify": {
+                "ranges": null,
+                "dns": null
+            },
+            "findability": false
+        },
+        {
+            "id": "linkedinbot",
+            "name": "LinkedInBot",
+            "patterns": [
+                "LinkedInBot"
+            ],
+            "class": "social",
+            "owner": "LinkedIn",
+            "verify": {
+                "ranges": null,
+                "dns": null
+            },
+            "findability": false
+        },
+        {
+            "id": "slackbot",
+            "name": "Slackbot",
+            "patterns": [
+                "Slackbot",
+                "Slack-ImgProxy"
+            ],
+            "class": "social",
+            "owner": "Slack",
+            "verify": {
+                "ranges": null,
+                "dns": null
+            },
+            "findability": false
+        },
+        {
+            "id": "whatsapp",
+            "name": "WhatsApp",
+            "patterns": [
+                "WhatsApp"
+            ],
+            "class": "social",
+            "owner": "Meta",
+            "verify": {
+                "ranges": null,
+                "dns": null
+            },
+            "findability": false
+        },
+        {
+            "id": "discordbot",
+            "name": "Discordbot",
+            "patterns": [
+                "Discordbot"
+            ],
+            "class": "social",
+            "owner": "Discord",
+            "verify": {
+                "ranges": null,
+                "dns": null
+            },
+            "findability": false
+        },
+        {
+            "id": "telegrambot",
+            "name": "TelegramBot",
+            "patterns": [
+                "TelegramBot"
+            ],
+            "class": "social",
+            "owner": "Telegram",
+            "verify": {
+                "ranges": null,
+                "dns": null
+            },
+            "findability": false
+        },
+        {
+            "id": "pinterestbot",
+            "name": "Pinterestbot",
+            "patterns": [
+                "Pinterestbot",
+                "pinterest.com/bot.html"
+            ],
+            "class": "social",
+            "owner": "Pinterest",
+            "verify": {
+                "ranges": null,
+                "dns": null
+            },
+            "findability": false
+        },
+        {
+            "id": "uptimerobot",
+            "name": "UptimeRobot",
+            "patterns": [
+                "UptimeRobot"
+            ],
+            "class": "monitoring",
+            "owner": "UptimeRobot",
+            "verify": {
+                "ranges": null,
+                "dns": null
+            },
+            "findability": false
+        },
+        {
+            "id": "pingdom",
+            "name": "Pingdom",
+            "patterns": [
+                "Pingdom"
+            ],
+            "class": "monitoring",
+            "owner": "SolarWinds",
+            "verify": {
+                "ranges": null,
+                "dns": null
+            },
+            "findability": false
+        },
+        {
+            "id": "statuscake",
+            "name": "StatusCake",
+            "patterns": [
+                "StatusCake"
+            ],
+            "class": "monitoring",
+            "owner": "StatusCake",
+            "verify": {
+                "ranges": null,
+                "dns": null
+            },
+            "findability": false
+        },
+        {
+            "id": "site24x7",
+            "name": "Site24x7",
+            "patterns": [
+                "Site24x7"
+            ],
+            "class": "monitoring",
+            "owner": "Zoho",
+            "verify": {
+                "ranges": null,
+                "dns": null
+            },
+            "findability": false
+        },
+        {
+            "id": "better-uptime",
+            "name": "Better Uptime",
+            "patterns": [
+                "Better Uptime",
+                "BetterUptime"
+            ],
+            "class": "monitoring",
+            "owner": "Better Stack",
+            "verify": {
+                "ranges": null,
+                "dns": null
+            },
+            "findability": false
+        },
+        {
+            "id": "jetpack",
+            "name": "Jetpack",
+            "patterns": [
+                "Jetpack by WordPress.com"
+            ],
+            "class": "monitoring",
+            "owner": "Automattic",
+            "verify": {
+                "ranges": null,
+                "dns": null
+            },
+            "findability": false
+        },
+        {
+            "id": "feedly",
+            "name": "Feedly",
+            "patterns": [
+                "Feedly"
+            ],
+            "class": "feed",
+            "owner": "Feedly",
+            "verify": {
+                "ranges": null,
+                "dns": null
+            },
+            "findability": false
+        },
+        {
+            "id": "inoreader",
+            "name": "Inoreader",
+            "patterns": [
+                "Inoreader"
+            ],
+            "class": "feed",
+            "owner": "Inoreader",
+            "verify": {
+                "ranges": null,
+                "dns": null
+            },
+            "findability": false
+        },
+        {
+            "id": "newsblur",
+            "name": "NewsBlur",
+            "patterns": [
+                "NewsBlur"
+            ],
+            "class": "feed",
+            "owner": "NewsBlur",
+            "verify": {
+                "ranges": null,
+                "dns": null
+            },
+            "findability": false
+        }
+    ]
+}

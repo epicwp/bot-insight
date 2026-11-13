@@ -1,0 +1,122 @@
+name: CI
+
+on:
+  push:
+    branches: [main, beta]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint (phpcs)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+          tools: composer
+      - uses: ramsey/composer-install@v3
+      - run: composer lint
+
+  analyse:
+    name: Static analysis (phpstan)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+          tools: composer
+      - uses: ramsey/composer-install@v3
+      - run: composer analyse
+
+  unit:
+    name: Unit tests (PHP ${{ matrix.php }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['7.4', '8.1', '8.3']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+          tools: composer
+      - uses: ramsey/composer-install@v3
+      - run: composer test:unit
+
+  integration:
+    name: Integration tests (PHP ${{ matrix.php }}, WP ${{ matrix.wp }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - php: '7.4'
+            wp: '6.2'
+            wp-phpunit: '6.2.*'
+          - php: '8.3'
+            wp: latest
+            wp-phpunit: '*'
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: wordpress_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: mysqli
+          coverage: none
+          tools: composer
+      - uses: ramsey/composer-install@v3
+      - name: Match the WordPress test library to WordPress ${{ matrix.wp }}
+        env:
+          WP_PHPUNIT_VERSION: ${{ matrix.wp-phpunit }}
+        run: composer update wp-phpunit/wp-phpunit --with "wp-phpunit/wp-phpunit:${WP_PHPUNIT_VERSION}" --no-interaction
+      - name: Install WordPress ${{ matrix.wp }}
+        env:
+          WP_VERSION: ${{ matrix.wp }}
+        run: bin/install-wp-tests.sh wordpress_test root root 127.0.0.1:3306 "$WP_VERSION" true
+      - run: composer test:integration
+
+  plugin-check:
+    name: Plugin Check (org zip)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '7.4'
+          coverage: none
+          tools: composer
+      - name: Build the WordPress.org flavour
+        run: bin/build-zip.sh org
+      - name: Unpack the zip
+        run: |
+          mkdir -p build-check
+          unzip -q dist/bot-insight-org.zip -d build-check
+      - uses: wordpress/plugin-check-action@v1
+        with:
+          build-dir: build-check/bot-insight

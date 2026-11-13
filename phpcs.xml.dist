@@ -1,0 +1,47 @@
+<?xml version="1.0"?>
+<ruleset name="Bot Insight">
+	<description>Coding standards for Bot Insight.</description>
+
+	<!-- Scans bot-insight.php, uninstall.php and src/. -->
+	<file>bot-insight.php</file>
+	<file>uninstall.php</file>
+	<file>src</file>
+
+	<arg name="extensions" value="php"/>
+	<arg name="colors"/>
+	<arg value="ps"/>
+
+	<config name="testVersion" value="7.4-"/>
+	<config name="minimum_wp_version" value="6.2"/>
+
+	<rule ref="WordPress-Extra"/>
+	<rule ref="WordPress-Docs"/>
+	<rule ref="PHPCompatibilityWP"/>
+
+	<rule ref="WordPress.Files.FileName">
+		<exclude name="WordPress.Files.FileName"/>
+	</rule>
+
+	<!-- The plan uses camelCase method names throughout. -->
+	<rule ref="WordPress.NamingConventions.ValidFunctionName.MethodNameInvalid">
+		<severity>0</severity>
+	</rule>
+
+	<rule ref="WordPress.NamingConventions.PrefixAllGlobals">
+		<properties>
+			<property name="prefixes" type="array">
+				<element value="bot_insight"/>
+				<element value="BotInsight"/>
+				<element value="BOT_INSIGHT"/>
+			</property>
+		</properties>
+	</rule>
+
+	<rule ref="WordPress.WP.I18n">
+		<properties>
+			<property name="text_domain" type="array">
+				<element value="bot-insight"/>
+			</property>
+		</properties>
+	</rule>
+</ruleset>

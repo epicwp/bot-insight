@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<phpunit
+	bootstrap="tests/unit/bootstrap.php"
+	defaultTestSuite="unit"
+	colors="true"
+	beStrictAboutTestsThatDoNotTestAnything="true"
+>
+	<testsuites>
+		<testsuite name="unit">
+			<directory suffix="Test.php">tests/unit</directory>
+		</testsuite>
+	</testsuites>
+	<groups>
+		<exclude>
+			<group>bench</group>
+		</exclude>
+	</groups>
+</phpunit>
