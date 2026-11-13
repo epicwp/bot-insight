@@ -10,6 +10,7 @@ namespace BotInsight;
 
 use BotInsight\Admin\DashboardPage;
 use BotInsight\Admin\RestController;
+use BotInsight\Admin\SettingsPage;
 use BotInsight\Buffer\FileBuffer;
 use BotInsight\Capture\Recorder;
 use BotInsight\Fold\Scheduler;
@@ -68,6 +69,7 @@ final class Plugin {
 		Events::hooks();
 		RestController::hooks();
 		DashboardPage::hooks( $file );
+		SettingsPage::hooks();
 		// Before the recorder registers, so an upgrade's buffer dir is in place.
 		add_action( 'plugins_loaded', array( self::class, 'maybeUpgrade' ), 5 );
 		add_action( 'plugins_loaded', array( Recorder::class, 'register' ) );
@@ -156,5 +158,12 @@ final class Plugin {
 			self::$settings = array_merge( self::DEFAULT_SETTINGS, is_array( $stored ) ? $stored : array() );
 		}
 		return self::$settings;
+	}
+
+	/**
+	 * Forget the per-request settings cache, so the next settings() call reads the option again.
+	 */
+	public static function resetSettings(): void {
+		self::$settings = null;
 	}
 }

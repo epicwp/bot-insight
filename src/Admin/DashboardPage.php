@@ -79,7 +79,7 @@ final class DashboardPage {
 	 * @param string $hook_suffix Current admin page hook.
 	 */
 	public static function enqueue( $hook_suffix ): void {
-		if ( '' === self::$hook_suffix || self::$hook_suffix !== $hook_suffix ) {
+		if ( '' === self::$hook_suffix || self::$hook_suffix !== $hook_suffix || 'dashboard' !== self::currentTab() ) {
 			return;
 		}
 		$file = '' !== self::$file ? self::$file : BOT_INSIGHT_FILE;
@@ -117,19 +117,47 @@ final class DashboardPage {
 		if ( ! current_user_can( 'manage_options' ) ) {
 			return;
 		}
+		$tab = self::currentTab();
 		?>
 <div class="wrap bot-insight">
 	<h1 class="wp-heading-inline"><?php echo esc_html__( 'Bot Insight', 'bot-insight' ); ?></h1>
 	<hr class="wp-header-end">
 	<nav class="nav-tab-wrapper bot-insight-tabs" aria-label="<?php echo esc_attr__( 'Bot Insight sections', 'bot-insight' ); ?>">
-		<a href="<?php echo esc_url( self::url() ); ?>" class="nav-tab nav-tab-active" aria-current="page"><?php echo esc_html__( 'Dashboard', 'bot-insight' ); ?></a>
+		<?php foreach ( self::tabs() as $slug => $label ) : ?>
+			<?php $active = $slug === $tab; ?>
+		<a href="<?php echo esc_url( self::url( $slug ) ); ?>" class="nav-tab<?php echo $active ? ' nav-tab-active' : ''; ?>"<?php echo $active ? ' aria-current="page"' : ''; ?>><?php echo esc_html( $label ); ?></a>
+		<?php endforeach; ?>
 	</nav>
+		<?php if ( 'settings' === $tab ) : ?>
+			<?php SettingsPage::renderTab(); ?>
+		<?php else : ?>
 	<div id="bot-insight-app" class="bot-insight-app">
 		<p class="bot-insight-loading"><?php echo esc_html__( 'Loading…', 'bot-insight' ); ?></p>
 		<noscript><p><?php echo esc_html__( 'The Bot Insight dashboard needs JavaScript.', 'bot-insight' ); ?></p></noscript>
 	</div>
+		<?php endif; ?>
 </div>
 		<?php
+	}
+
+	/**
+	 * The tabs: slug => label.
+	 *
+	 * @return array<string, string>
+	 */
+	public static function tabs(): array {
+		return array(
+			'dashboard' => __( 'Dashboard', 'bot-insight' ),
+			'settings'  => __( 'Settings', 'bot-insight' ),
+		);
+	}
+
+	/**
+	 * The requested tab, validated against the allowlist ('dashboard' when unknown).
+	 */
+	public static function currentTab(): string {
+		$tab = isset( $_GET['tab'] ) && is_string( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'dashboard'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- Read-only tab choice from an allowlist.
+		return array_key_exists( $tab, self::tabs() ) ? $tab : 'dashboard';
 	}
 
 	/**
@@ -144,7 +172,7 @@ final class DashboardPage {
 			array(
 				'settings' => sprintf(
 					'<a href="%s">%s</a>',
-					esc_url( self::url() ),
+					esc_url( self::url( 'settings' ) ),
 					esc_html__( 'Settings', 'bot-insight' )
 				),
 			),
@@ -153,9 +181,12 @@ final class DashboardPage {
 	}
 
 	/**
-	 * URL of the page.
+	 * URL of the page or of one of its tabs.
+	 *
+	 * @param string $tab Tab slug; the dashboard has no tab argument.
 	 */
-	public static function url(): string {
-		return admin_url( 'tools.php?page=' . self::SLUG );
+	public static function url( string $tab = 'dashboard' ): string {
+		$url = admin_url( 'tools.php?page=' . self::SLUG );
+		return 'dashboard' === $tab ? $url : add_query_arg( 'tab', $tab, $url );
 	}
 }
