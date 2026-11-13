@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Bot Insight dashboard</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0;background:#f0f0f1;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Oxygen-Sans,Ubuntu,Cantarell,"Helvetica Neue",sans-serif;color:#1d2327}
+a{color:#2271b1}a:hover{color:#135e96}
+code,pre{font-family:Consolas,Monaco,monospace}
+</style>
+</helmet>
+<div style="display: flex; flex-direction: column; min-height: 100vh; background: #f0f0f1;">
+  <div style="height: 32px; background: #1d2327; color: #f0f0f1; display: flex; align-items: center; gap: 20px; padding: 0 12px; font-size: 13px;">
+    <span style="font-weight: 600;">Your WooCommerce Shop</span>
+    <span style="color: #c3c4c7;">+ New</span>
+    <span style="margin-left: auto; color: #c3c4c7;">Howdy, admin</span>
+  </div>
+  <div style="display: flex; flex-wrap: wrap; flex: 1 1 auto;">
+    <nav aria-label="Admin menu" style="flex: 1 1 160px; max-width: 160px; background: #1d2327; color: #f0f0f1; font-size: 14px; padding: 8px 0;">
+      <sc-for list="{{menu}}" as="m" hint-placeholder-count="8">
+        <div style="padding: 8px 12px; {{m.style}}">{{m.label}}</div>
+      </sc-for>
+    </nav>
+    <main style="flex: 999 1 560px; min-width: 0; padding: 20px 24px 48px; box-sizing: border-box;">
+      <div style="max-width: 1200px; display: flex; flex-direction: column; gap: 20px;">
+
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px;">
+          <h1 style="margin: 0; font-size: 23px; font-weight: 400;">Bot Insight</h1>
+          <span style="font-size: 12px; background: #dcdcde; color: #1d2327; padding: 2px 8px; border-radius: 10px;">Measuring only, nothing is blocked</span>
+          <div style="margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap;">
+            <label for="period" style="font-size: 13px; align-self: center; color: #50575e;">Period</label>
+            <select id="period" style="font-size: 13px; padding: 4px 24px 4px 8px; border: 1px solid #8c8f94; border-radius: 4px; background: #fff; min-height: 32px;">
+              <option>Last 7 days</option>
+              <option>Last 24 hours</option>
+              <option>Last 30 days</option>
+            </select>
+            <button type="button" style="font-size: 13px; min-height: 32px; padding: 0 12px; border: 1px solid #2271b1; color: #2271b1; background: #f6f7f7; border-radius: 3px; cursor: pointer;">Share report with developer</button>
+          </div>
+        </div>
+
+        <div style="background: #fff; border: 1px solid #c3c4c7; border-left: 4px solid #d63638; padding: 12px 16px; display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: baseline;">
+          <strong style="font-size: 14px;">82% of your server's PHP time went to bots this week.</strong>
+          <span style="font-size: 13px; color: #50575e;">That is 2,679 of 3,268 PHP hours. Real visitors had to wait behind them: 1 in 2 page loads took longer than 2 seconds.</span>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px;">
+          <sc-for list="{{kpis}}" as="k" hint-placeholder-count="4">
+            <div style="background: #fff; border: 1px solid #c3c4c7; padding: 16px; display: flex; flex-direction: column; gap: 6px; min-width: 0;">
+              <span style="font-size: 12px; color: #50575e; text-transform: uppercase; letter-spacing: 0.04em;">{{k.label}}</span>
+              <span style="font-size: 28px; font-weight: 600; color: {{k.color}};">{{k.value}}</span>
+              <span style="font-size: 12px; color: #50575e;">{{k.sub}}</span>
+            </div>
+          </sc-for>
+        </div>
+
+        <section style="background: #fff; border: 1px solid #c3c4c7; padding: 16px 20px; display: flex; flex-direction: column; gap: 16px;">
+          <div style="display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px;">
+            <h2 style="margin: 0; font-size: 15px; font-weight: 600;">PHP hours per day, by visitor type</h2>
+            <div style="display: flex; flex-wrap: wrap; gap: 14px; margin-left: auto; font-size: 12px; color: #1d2327;">
+              <sc-for list="{{legend}}" as="l" hint-placeholder-count="4">
+                <span style="display: flex; align-items: center; gap: 6px;"><span aria-hidden="true" style="width: 10px; height: 10px; background: {{l.color}}; display: inline-block;"></span>{{l.label}}</span>
+              </sc-for>
+            </div>
+          </div>
+          <div style="overflow-x: auto;">
+            <div style="display: flex; align-items: flex-end; gap: 18px; height: 260px; min-width: 560px; border-bottom: 1px solid #c3c4c7; padding: 0 4px;">
+              <sc-for list="{{days}}" as="d" hint-placeholder-count="7">
+                <div style="flex: 1 1 0; display: flex; flex-direction: column; align-items: stretch; justify-content: flex-end; height: 100%; gap: 4px;">
+                  <span style="font-size: 12px; text-align: center; color: #1d2327; font-weight: 600;">{{d.total}} h</span>
+                  <div role="img" aria-label="{{d.aria}}" style="display: flex; flex-direction: column; justify-content: flex-end;">
+                    <div style="height: {{d.hUnknown}}px; background: #d63638;"></div>
+                    <div style="height: {{d.hCrawl}}px; background: #dba617;"></div>
+                    <div style="height: {{d.hSearch}}px; background: #72aee6;"></div>
+                    <div style="height: {{d.hHuman}}px; background: #2271b1;"></div>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+            <div style="display: flex; gap: 18px; min-width: 560px; padding: 6px 4px 0;">
+              <sc-for list="{{days}}" as="d" hint-placeholder-count="7">
+                <span style="flex: 1 1 0; text-align: center; font-size: 12px; color: #50575e;">{{d.label}}</span>
+              </sc-for>
+            </div>
+          </div>
+          <p style="margin: 0; font-size: 12px; color: #50575e;">Nov 12: bot rules applied (Cloudflare challenge outside Europe, origin lock, robots.txt). Bot PHP time dropped by 90%.</p>
+        </section>
+
+        <div style="display: flex; flex-wrap: wrap; gap: 20px;">
+          <section style="flex: 3 1 560px; min-width: 0; background: #fff; border: 1px solid #c3c4c7; padding: 16px 20px; display: flex; flex-direction: column; gap: 12px;">
+            <h2 style="margin: 0; font-size: 15px; font-weight: 600;">Who is visiting</h2>
+            <div style="overflow-x: auto;">
+              <table style="width: 100%; min-width: 620px; border-collapse: collapse; font-size: 13px;">
+                <thead>
+                  <tr style="text-align: left; border-bottom: 1px solid #c3c4c7;">
+                    <th scope="col" style="padding: 8px 8px 8px 0; font-weight: 600;">Visitor</th>
+                    <th scope="col" style="padding: 8px; font-weight: 600;">Type</th>
+                    <th scope="col" style="padding: 8px; font-weight: 600; text-align: right;">Requests</th>
+                    <th scope="col" style="padding: 8px; font-weight: 600; text-align: right;">PHP hours</th>
+                    <th scope="col" style="padding: 8px; font-weight: 600;">Identity</th>
+                    <th scope="col" style="padding: 8px 0 8px 8px; font-weight: 600;">Advice</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <sc-for list="{{bots}}" as="b" hint-placeholder-count="8">
+                    <tr style="border-bottom: 1px solid #f0f0f1;">
+                      <td style="padding: 9px 8px 9px 0; font-weight: 600;">{{b.name}}</td>
+                      <td style="padding: 9px 8px;"><span style="display: inline-flex; align-items: center; gap: 6px;"><span aria-hidden="true" style="width: 8px; height: 8px; border-radius: 50%; background: {{b.dot}};"></span>{{b.type}}</span></td>
+                      <td style="padding: 9px 8px; text-align: right; font-variant-numeric: tabular-nums;">{{b.req}}</td>
+                      <td style="padding: 9px 8px; text-align: right; font-variant-numeric: tabular-nums;">{{b.php}}</td>
+                      <td style="padding: 9px 8px; color: #50575e;">{{b.verified}}</td>
+                      <td style="padding: 9px 0 9px 8px;"><span style="font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 3px; background: {{b.adviceBg}}; color: {{b.adviceFg}};">{{b.advice}}</span></td>
+                    </tr>
+                  </sc-for>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <div style="flex: 2 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 20px;">
+            <section style="background: #fff; border: 1px solid #c3c4c7; padding: 16px 20px; display: flex; flex-direction: column; gap: 10px;">
+              <h2 style="margin: 0; font-size: 15px; font-weight: 600;">What bots ask for</h2>
+              <sc-for list="{{params}}" as="p" hint-placeholder-count="5">
+                <div style="display: flex; flex-direction: column; gap: 4px;">
+                  <div style="display: flex; justify-content: space-between; gap: 8px; font-size: 13px;"><code style="font-size: 12px;">{{p.name}}</code><span style="font-variant-numeric: tabular-nums;">{{p.count}}</span></div>
+                  <div style="height: 6px; background: #f0f0f1;"><div style="height: 6px; width: {{p.width}}; background: #d63638;"></div></div>
+                </div>
+              </sc-for>
+            </section>
+            <section style="background: #fff; border: 1px solid #c3c4c7; padding: 16px 20px; display: flex; flex-direction: column; gap: 10px;">
+              <h2 style="margin: 0; font-size: 15px; font-weight: 600;">Where unknown bots come from</h2>
+              <p style="margin: 0; font-size: 12px; color: #50575e;">Your customers are in NL, BE, DE. 98% of unknown bot time comes from outside those countries.</p>
+              <sc-for list="{{countries}}" as="c" hint-placeholder-count="6">
+                <div style="display: grid; grid-template-columns: 110px minmax(0, 1fr) 40px; gap: 8px; align-items: center; font-size: 13px;">
+                  <span>{{c.name}}</span>
+                  <div style="height: 6px; background: #f0f0f1;"><div style="height: 6px; width: {{c.width}}; background: #dba617;"></div></div>
+                  <span style="text-align: right; font-variant-numeric: tabular-nums;">{{c.pct}}</span>
+                </div>
+              </sc-for>
+            </section>
+          </div>
+        </div>
+
+        <section style="background: #fff; border: 1px solid #c3c4c7; padding: 16px 20px; display: flex; flex-direction: column; gap: 14px;">
+          <h2 style="margin: 0; font-size: 15px; font-weight: 600;">Findings and what to do</h2>
+          <sc-for list="{{findings}}" as="f" hint-placeholder-count="4">
+            <div style="border: 1px solid #dcdcde; border-left: 4px solid {{f.color}}; padding: 12px 16px; display: flex; flex-direction: column; gap: 8px;">
+              <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;">
+                <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: {{f.labelColor}};">{{f.level}}</span>
+                <strong style="font-size: 14px;">{{f.title}}</strong>
+                <span style="margin-left: auto; font-size: 12px; color: #50575e;">{{f.cost}}</span>
+              </div>
+              <p style="margin: 0; font-size: 13px; color: #3c434a;">{{f.text}}</p>
+              <sc-if value="{{f.hasSnippet}}" hint-placeholder-val="{{true}}">
+                <div style="display: flex; flex-direction: column; gap: 6px;">
+                  <pre style="margin: 0; background: #f6f7f7; border: 1px solid #dcdcde; padding: 10px 12px; font-size: 12px; white-space: pre-wrap; overflow-x: auto;">{{f.snippet}}</pre>
+                  <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                    <button type="button" style="font-size: 13px; min-height: 32px; padding: 0 12px; background: #2271b1; color: #fff; border: 1px solid #2271b1; border-radius: 3px; cursor: pointer;">{{f.action}}</button>
+                    <a href="#" style="font-size: 13px; align-self: center;">Why this is safe for customers</a>
+                  </div>
+                </div>
+              </sc-if>
+            </div>
+          </sc-for>
+        </section>
+
+        <p style="margin: 0; font-size: 12px; color: #50575e;">Bot Insight stores totals per hour, no full IP addresses (hashed, daily salt), and deletes data after 30 days. Plugin overhead: [MEASURED] ms per request. Requests served from your page cache or blocked by your CDN never reach PHP and are not counted.</p>
+      </div>
+    </main>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const raw = [
+      ['Nov 6', 326, 0.80, 0.07, 0.04], ['Nov 7', 265, 0.78, 0.07, 0.05], ['Nov 8', 1036, 0.90, 0.04, 0.02],
+      ['Nov 9', 549, 0.84, 0.06, 0.03], ['Nov 10', 256, 0.77, 0.08, 0.05], ['Nov 11', 836, 0.88, 0.05, 0.02],
+      ['Nov 12', 63, 0.22, 0.10, 0.16]
+    ];
+    const max = 1036, px = 215;
+    const days = raw.map(([label, total, u, c, s]) => {
+      const h = total / max * px;
+      const human = 1 - u - c - s;
+      return {
+        label, total: String(total),
+        hUnknown: Math.round(h * u), hCrawl: Math.round(h * c), hSearch: Math.round(h * s), hHuman: Math.max(2, Math.round(h * human)),
+        aria: label + ': ' + total + ' PHP hours, ' + Math.round(u * 100) + '% unknown bots, ' + Math.round(human * 100) + '% people'
+      };
+    });
+    const advice = {
+      allow: ['#edfaef', '#00450c'], block: ['#fcf0f1', '#8a2424'], limit: ['#fcf9e8', '#614200'], robots: ['#f0f6fc', '#0a4b78']
+    };
+    const bot = (name, type, dot, req, php, verified, a, label) =>
+      ({ name, type, dot, req, php, verified, advice: label, adviceBg: advice[a][0], adviceFg: advice[a][1] });
+    return {
+      menu: [
+        { label: 'Dashboard', style: '' }, { label: 'Posts', style: '' }, { label: 'Media', style: '' },
+        { label: 'Pages', style: '' }, { label: 'WooCommerce', style: '' }, { label: 'Products', style: '' },
+        { label: 'Tools', style: 'background: #2271b1; color: #fff;' }, { label: 'Settings', style: '' }
+      ],
+      kpis: [
+        { label: 'PHP time to bots', value: '82%', sub: '2,679 of 3,268 hours', color: '#b32d2e' },
+        { label: 'Requests', value: '1.16 M', sub: '7 days, reaching PHP', color: '#1d2327' },
+        { label: 'Unique bot IPs', value: '445,000', sub: 'mostly seen once: a proxy network', color: '#1d2327' },
+        { label: 'Real visitors', value: '18%', sub: 'of PHP time, 589 hours', color: '#2271b1' }
+      ],
+      legend: [
+        { label: 'Unknown bots', color: '#d63638' }, { label: 'AI and SEO crawlers', color: '#dba617' },
+        { label: 'Search engines', color: '#72aee6' }, { label: 'People', color: '#2271b1' }
+      ],
+      days,
+      bots: [
+        bot('No JavaScript, browser disguise', 'Unknown bot', '#d63638', '629,600', '2,488', 'Residential proxies, 445k IPs', 'block', 'Challenge'),
+        bot('SemrushBot', 'SEO tool', '#dba617', '41,200', '64', 'Claims Semrush', 'robots', 'robots.txt'),
+        bot('meta-externalagent', 'AI training', '#dba617', '18,300', '31', 'Verified Meta', 'limit', 'Limit'),
+        bot('GPTBot', 'AI training', '#dba617', '12,900', '22', 'Verified OpenAI', 'robots', 'robots.txt'),
+        bot('Googlebot', 'Search engine', '#72aee6', '21,400', '38', 'Verified by reverse DNS', 'allow', 'Keep'),
+        bot('bingbot', 'Search engine', '#72aee6', '9,800', '17', 'Verified by reverse DNS', 'allow', 'Keep'),
+        bot('OAI-SearchBot', 'AI search', '#72aee6', '600', '1', 'Verified OpenAI', 'allow', 'Keep'),
+        bot('PerplexityBot', 'AI search', '#72aee6', '400', '1', 'Verified Perplexity', 'allow', 'Keep')
+      ],
+      params: [
+        { name: '?add-to-cart=', count: '521,666', width: '100%' },
+        { name: '?per_page= / per_row=', count: '118,400', width: '23%' },
+        { name: '?shop_view=', count: '74,900', width: '14%' },
+        { name: '?orderby=', count: '38,200', width: '7%' },
+        { name: '?filter_*', count: '23,700', width: '5%' }
+      ],
+      countries: [
+        { name: 'Brazil', pct: '17%', width: '100%' }, { name: 'United States', pct: '10%', width: '59%' },
+        { name: 'Argentina', pct: '5%', width: '29%' }, { name: 'Russia', pct: '4%', width: '24%' },
+        { name: 'Colombia', pct: '4%', width: '24%' }, { name: 'Your countries', pct: '2%', width: '12%' }
+      ],
+      findings: [
+        { level: 'Critical', color: '#d63638', labelColor: '#b32d2e', title: 'Bots open add-to-cart links by the hundred thousand',
+          cost: '2,371 PHP hours / week',
+          text: 'Real customers add to cart with a button (AJAX POST). These are GET requests from 445,000 IPs that never run JavaScript, almost all from outside your countries. Each one starts WordPress and a cart session.',
+          hasSnippet: true, action: 'Copy Cloudflare rule',
+          snippet: '(http.request.method eq "GET" and http.request.uri.query ne ""\n and ip.geoip.continent ne "EU" and not cf.client.bot\n and not http.cookie contains "woocommerce_items_in_cart")\n→ Managed Challenge' },
+        { level: 'Critical', color: '#d63638', labelColor: '#b32d2e', title: 'Traffic reaches your server without passing your CDN',
+          cost: '31% of bot requests',
+          text: 'Your site sits behind Cloudflare, but these requests went straight to the server IP. Cloudflare rules cannot stop them. Lock the origin so only Cloudflare may connect.',
+          hasSnippet: true, action: 'Show origin lock steps',
+          snippet: 'Cloudflare: Transform rule, set header X-Origin-Key: <secret>\nServer (nginx): return 403 when the header is missing' },
+        { level: 'Warning', color: '#dba617', labelColor: '#7a5600', title: 'AI crawlers are allowed to fetch every filter URL',
+          cost: '22 PHP hours / week',
+          text: 'Your robots.txt has a separate "User-agent: GPTBot / Allow: /" group, which overrides your general filter rules. GPTBot obeys robots.txt, so one change keeps it on your products only. You stay visible in ChatGPT.',
+          hasSnippet: true, action: 'Copy robots.txt',
+          snippet: 'User-agent: *\nDisallow: /*?*add-to-cart=\nDisallow: /*?*filter_\nDisallow: /*?*orderby=\nDisallow: /*?*per_page=' },
+        { level: 'Good', color: '#00a32a', labelColor: '#00450c', title: 'Google, Bing and AI search crawl normally',
+          cost: '57 PHP hours / week',
+          text: 'Verified search engines and AI search bots (ChatGPT, Perplexity) reach your products. Keep them allowed in every rule above.',
+          hasSnippet: false, action: '', snippet: '' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>
