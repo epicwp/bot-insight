@@ -8,6 +8,8 @@
 
 namespace BotInsight\Tests\Integration;
 
+use BotInsight\Buffer\FileBuffer;
+use BotInsight\Capture\Record;
 use BotInsight\Fold\Folder;
 use BotInsight\Plugin;
 use BotInsight\Storage\Dictionary;
@@ -108,6 +110,30 @@ final class RestControllerTest extends \WP_UnitTestCase {
 		$this->assertIsInt( $health['last_fold'] );
 		// The report folds first; a fold with errors keeps the previous last_run.
 		$this->assertIsString( $health['last_error'] );
+	}
+
+	public function test_report_folds_without_dns_lookups(): void {
+		global $wpdb;
+		$this->admin();
+		$dir = Plugin::ensureBufferDir();
+		$now = time();
+		// A claimed Googlebot outside Google's ranges: verifying it needs reverse DNS.
+		$record = array(
+			'ts'   => $now - 120,
+			'ms'   => 50.0,
+			'm'    => 'GET',
+			'r'    => 'product',
+			'ua'   => 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+			'ip'   => '192.0.2.50',
+			'ips'  => 'remote_addr',
+			'self' => 0,
+		);
+		$this->assertTrue( ( new FileBuffer( $dir ) )->append( Record::encode( $record ), $now - 120 ) );
+
+		$this->assertSame( 200, $this->get( '/bot-insight/v1/report' )->get_status() );
+
+		// Folded, but left unchecked (3) instead of looked up: DNS waits for the background fold.
+		$this->assertSame( array( '3' ), $wpdb->get_col( 'SELECT verified FROM ' . Schema::tables()['hourly'] ) ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 	}
 
 	public function test_report_still_works_when_the_fold_fails(): void {

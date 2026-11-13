@@ -72,7 +72,14 @@ final class RestController {
 	}
 
 	/**
-	 * The dashboard data. Folds what is waiting first, so the numbers are current.
+	 * Seconds the report's fold may start new files for; the rest is left to cron.
+	 */
+	private const FOLD_SECONDS = 3;
+
+	/**
+	 * The dashboard data. Folds what is waiting first, so the numbers are current: briefly and
+	 * without DNS lookups, so the dashboard never waits on a slow resolver. Claimed bots that need
+	 * a lookup stay unchecked until the background fold.
 	 *
 	 * @param \WP_REST_Request $request Request.
 	 */
@@ -80,7 +87,7 @@ final class RestController {
 		$now = time();
 		try {
 			// A busy lock makes this a no-op; a failure must never break the report.
-			Folder::create()->run( $now, 10 );
+			Folder::create( 0 )->run( $now, self::FOLD_SECONDS );
 		} catch ( \Throwable $e ) {
 			unset( $e );
 		}
