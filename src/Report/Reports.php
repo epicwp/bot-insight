@@ -249,8 +249,8 @@ final class Reports {
 	 *
 	 * `id` is the bots.json id or ''. `verified` sums requests by verified code (1 yes, 2 no,
 	 * 3 unchecked); `findability` comes from the bot list. Requests that claimed a bot and failed
-	 * verification (`unknown_bot`, verified 2) form their own row: label "<name> (failed
-	 * verification)", class `unknown_bot`, findability false, `impostor` true.
+	 * verification (`unknown_bot`, verified 2) form their own row: label "<name>" (the
+	 * claimed bot's name), class `unknown_bot`, findability false, `impostor` true.
 	 *
 	 * @param Period $p     Period.
 	 * @param int    $limit Most rows.
@@ -315,13 +315,8 @@ final class Reports {
 					} else {
 						$class = null !== $bot ? (string) $bot['class'] : (string) array_key_first( $entry['classes'] );
 					}
-					if ( $entry['impostor'] ) {
-						$label = sprintf(
-							/* translators: %s: bot name */
-							__( '%s (failed verification)', 'bot-insight' ),
-							null !== $bot ? (string) $bot['name'] : $entry['id']
-						);
-					} elseif ( null !== $bot ) {
+					// An impostor row keeps the claimed bot's name; `impostor: true` marks it.
+					if ( null !== $bot ) {
 						$label = (string) $bot['name'];
 					} elseif ( '' !== $entry['id'] ) {
 						$label = $entry['id'];

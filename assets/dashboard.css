@@ -31,23 +31,6 @@
 	--bi-c-other: #3c434a;
 }
 
-@media (prefers-color-scheme: dark) {
-	.bot-insight {
-		--bi-c-people: #a7aaad;
-		--bi-c-search: #1f8a5c;
-		--bi-c-ai_search: #3fb383;
-		--bi-c-ai_assistant: #8fd6b3;
-		--bi-c-ai_training: #f0ad1c;
-		--bi-c-seo: #d98fb8;
-		--bi-c-social: #6cc1f0;
-		--bi-c-monitoring: #2b8acb;
-		--bi-c-feed: #c9b34c;
-		--bi-c-library: #9179bd;
-		--bi-c-unknown_bot: #e5711a;
-		--bi-c-suspected: #a84d3f;
-	}
-}
-
 .bot-insight .bot-insight-tabs {
 	margin-bottom: 16px;
 }
@@ -222,6 +205,39 @@
 .bot-insight .bi-help:focus {
 	outline: 2px solid var(--bi-accent);
 	outline-offset: 1px;
+}
+
+/* Help text: shown on hover and keyboard focus, laid over the card below the label. */
+.bot-insight .bi-kpi {
+	position: relative;
+}
+
+.bot-insight .bi-tooltip {
+	display: none;
+	position: absolute;
+	z-index: 10;
+	top: 40px;
+	left: 12px;
+	right: 12px;
+	padding: 8px 10px;
+	background: #1d2327;
+	color: #fff;
+	border-radius: 3px;
+	font-size: 12px;
+	line-height: 1.5;
+	text-transform: none;
+	letter-spacing: normal;
+	box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+.bot-insight .bi-help:hover + .bi-tooltip,
+.bot-insight .bi-help:focus + .bi-tooltip,
+.bot-insight .bi-tooltip:hover {
+	display: block;
+}
+
+.bot-insight .bi-help:focus + .bi-tooltip--dismissed {
+	display: none;
 }
 
 /* Chart */

@@ -209,7 +209,7 @@ final class ReportsTest extends \WP_UnitTestCase {
 
 		$rows = $this->reports()->visitors( Period::fromKey( '24h', self::NOW ) );
 
-		$this->assertSame( array( 'Googlebot', 'GPTBot', 'Suspected automated', 'People', 'Googlebot (failed verification)', 'Unknown bots', 'Script libraries' ), array_column( $rows, 'bot' ) );
+		$this->assertSame( array( 'Googlebot', 'GPTBot', 'Suspected automated', 'People', 'Googlebot', 'Unknown bots', 'Script libraries' ), array_column( $rows, 'bot' ) );
 		$this->assertSame(
 			array(
 				'id'          => 'googlebot',
@@ -231,7 +231,7 @@ final class ReportsTest extends \WP_UnitTestCase {
 		$this->assertSame(
 			array(
 				'id'          => 'googlebot',
-				'bot'         => 'Googlebot (failed verification)',
+				'bot'         => 'Googlebot',
 				'class'       => 'unknown_bot',
 				'requests'    => 8,
 				'php_hours'   => 0.03,

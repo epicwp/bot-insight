@@ -78,6 +78,7 @@
 		request: 0,
 		resizeTimer: 0,
 		observer: null,
+		exportNotice: null,
 	};
 
 	/* ------------------------------------------------------------------ helpers */
@@ -171,15 +172,23 @@
 		return intFormat.format( Number( value ) || 0 );
 	}
 
+	function hourDigits( v ) {
+		if ( v >= 100 ) {
+			return 0;
+		}
+		return v >= 10 ? 1 : 2;
+	}
+
 	function fmtHours( value ) {
 		const v = Number( value ) || 0;
-		let digits = 2;
-		if ( v >= 100 ) {
-			digits = 0;
-		} else if ( v >= 10 ) {
-			digits = 1;
-		}
-		return numberFormat( { maximumFractionDigits: digits } ).format( v );
+		return numberFormat( { maximumFractionDigits: hourDigits( v ) } ).format( v );
+	}
+
+	/** The value as fmtHours() shows it, as a number: the key for _n(). */
+	function shownHours( value ) {
+		const v = Number( value ) || 0;
+		const f = Math.pow( 10, hourDigits( v ) );
+		return Math.round( v * f ) / f;
 	}
 
 	function fmtPct( share ) {
@@ -369,14 +378,20 @@
 
 	function exportData() {
 		const period = state.period;
+		if ( state.exportNotice ) {
+			state.exportNotice.remove();
+			state.exportNotice = null;
+		}
 		exportButton.disabled = true;
 		status.textContent = __( 'Preparing export…', 'bot-insight' );
 
 		apiFetch( { path: restPath + '/export?period=' + encodeURIComponent( period ), parse: false } )
 			.then( function ( response ) {
 				const disposition = response.headers.get( 'Content-Disposition' ) || '';
-				const match = /filename="?([^";]+)"?/i.exec( disposition );
-				const filename = match ? match[ 1 ] : 'bot-insight-' + period + '.json';
+				// Plain `filename=` only; `filename*=` (RFC 5987) is ignored.
+				const match = /(?:^|;)\s*filename="?([^";]+)"?/i.exec( disposition );
+				const safe = match ? match[ 1 ].trim().replace( /[^\w.-]/g, '_' ) : '';
+				const filename = safe && /[^._]/.test( safe ) ? safe : 'bot-insight-' + period + '.json';
 				return response.blob().then( function ( blob ) {
 					const url = URL.createObjectURL( blob );
 					const link = el( 'a', { href: url, download: filename, className: 'screen-reader-text' } );
@@ -393,11 +408,8 @@
 			.catch( function ( error ) {
 				status.textContent = '';
 				const finish = function ( detail ) {
-					const notice = errorNotice( __( 'The export could not be created.', 'bot-insight' ), detail, function () {
-						notice.remove();
-						exportData();
-					} );
-					root.insertBefore( notice, content );
+					state.exportNotice = errorNotice( __( 'The export could not be created.', 'bot-insight' ), detail, exportData );
+					root.insertBefore( state.exportNotice, content );
 				};
 				// With parse:false a failed request rejects with the raw Response.
 				if ( error && typeof error.json === 'function' ) {
@@ -491,7 +503,7 @@
 				className: 'bi-banner__sub',
 				text: sprintf(
 					/* translators: 1: bot PHP hours, 2: total PHP hours */
-					__( 'That is %1$s of %2$s PHP hours.', 'bot-insight' ),
+					_n( 'That is %1$s of %2$s PHP hour.', 'That is %1$s of %2$s PHP hours.', shownHours( totals.php_hours ), 'bot-insight' ),
 					fmtHours( totals.bot_php_hours ),
 					fmtHours( totals.php_hours )
 				),
@@ -503,10 +515,19 @@
 		const labelNode = el( 'span', { className: 'bi-kpi__label' }, label );
 		if ( help ) {
 			const id = 'bi-help-' + Math.random().toString( 36 ).slice( 2 );
-			labelNode.appendChild(
-				el( 'span', { className: 'bi-help', tabindex: '0', role: 'img', title: help, 'aria-label': __( 'What is this?', 'bot-insight' ), 'aria-describedby': id, text: '?' } )
-			);
-			labelNode.appendChild( el( 'span', { id: id, className: 'screen-reader-text', text: help } ) );
+			const icon = el( 'span', { className: 'bi-help', tabindex: '0', role: 'img', 'aria-label': __( 'What is this?', 'bot-insight' ), 'aria-describedby': id, text: '?' } );
+			const tip = el( 'span', { id: id, role: 'tooltip', className: 'bi-tooltip', text: help } );
+			// Escape hides the tooltip without moving focus.
+			icon.addEventListener( 'keydown', function ( event ) {
+				if ( event.key === 'Escape' ) {
+					tip.classList.add( 'bi-tooltip--dismissed' );
+				}
+			} );
+			icon.addEventListener( 'blur', function () {
+				tip.classList.remove( 'bi-tooltip--dismissed' );
+			} );
+			labelNode.appendChild( icon );
+			labelNode.appendChild( tip );
 		}
 		return el( 'div', { className: 'bi-card bi-kpi' }, [
 			labelNode,
@@ -527,8 +548,11 @@
 			kpi(
 				__( 'Bot share of PHP time', 'bot-insight' ),
 				fmtPct( totals.bot_share ),
-				/* translators: %s: PHP hours */
-				sprintf( __( '%s PHP hours used by bots', 'bot-insight' ), fmtHours( totals.bot_php_hours ) )
+				sprintf(
+					/* translators: %s: PHP hours */
+					_n( '%s PHP hour used by bots', '%s PHP hours used by bots', shownHours( totals.bot_php_hours ), 'bot-insight' ),
+					fmtHours( totals.bot_php_hours )
+				)
 			),
 			kpi(
 				__( 'Verified search requests', 'bot-insight' ),
@@ -679,13 +703,20 @@
 				id: descId,
 				text:
 					peak >= 0 && max > 0
-						? sprintf(
-								/* translators: 1: number of days, 2: date, 3: PHP hours */
-								__( 'Stacked bars for %1$s days. The busiest day was %2$s with %3$s PHP hours. Use "Show as table" for all values.', 'bot-insight' ),
-								fmtInt( perDay.length ),
-								fmtDay( perDay[ peak ].day ),
-								fmtHours( max )
-						  )
+						? [
+								sprintf(
+									/* translators: %s: number of days */
+									_n( 'Stacked bars for %s day.', 'Stacked bars for %s days.', perDay.length, 'bot-insight' ),
+									fmtInt( perDay.length )
+								),
+								sprintf(
+									/* translators: 1: date, 2: PHP hours */
+									_n( 'The busiest day was %1$s with %2$s PHP hour.', 'The busiest day was %1$s with %2$s PHP hours.', shownHours( max ), 'bot-insight' ),
+									fmtDay( perDay[ peak ].day ),
+									fmtHours( max )
+								),
+								__( 'Use "Show as table" for all values.', 'bot-insight' ),
+						  ].join( ' ' )
 						: __( 'No PHP time was recorded in this period.', 'bot-insight' ),
 			} )
 		);
@@ -721,8 +752,13 @@
 				} );
 				rect.appendChild(
 					svg( 'title', {
-						/* translators: 1: date, 2: visitor type, 3: PHP hours */
-						text: sprintf( __( '%1$s · %2$s: %3$s PHP hours', 'bot-insight' ), label, classLabel( cls ), fmtHours( value ) ),
+						text: sprintf(
+							/* translators: 1: date, 2: visitor type, 3: PHP hours */
+							_n( '%1$s · %2$s: %3$s PHP hour', '%1$s · %2$s: %3$s PHP hours', shownHours( value ), 'bot-insight' ),
+							label,
+							classLabel( cls ),
+							fmtHours( value )
+						),
 					} )
 				);
 				group.appendChild( rect );
@@ -839,8 +875,11 @@
 				toggle.setAttribute( 'aria-expanded', open ? 'true' : 'false' );
 				toggle.textContent = open
 					? __( 'Show fewer', 'bot-insight' )
-					: /* translators: %s: number of rows */
-					  sprintf( __( 'Show all %s rows', 'bot-insight' ), fmtInt( visitors.length ) );
+					: sprintf(
+							/* translators: %s: number of rows */
+							_n( 'Show all %s row', 'Show all %s rows', visitors.length, 'bot-insight' ),
+							fmtInt( visitors.length )
+					  );
 			};
 			toggle.addEventListener( 'click', function () {
 				set( toggle.getAttribute( 'aria-expanded' ) !== 'true' );
